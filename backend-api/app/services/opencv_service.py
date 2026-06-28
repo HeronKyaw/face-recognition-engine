@@ -4,6 +4,7 @@ import cv2
 import onnxruntime
 from typing import Optional
 from pathlib import Path
+from huggingface_hub import hf_hub_download
 
 from app.config import get_settings
 
@@ -52,11 +53,15 @@ class OpenCVService:
             logger.warning("ONNX model already loaded")
             return
 
-        model_path = Path(settings.model_path)
-        if not model_path.exists():
-            raise FileNotFoundError(
-                f"ONNX model not found at {model_path}. "
-                f"Ensure arcface_mobilefacenet.onnx is in models/ directory."
+        try:
+            model_path = Path(hf_hub_download(
+                repo_id=settings.model_repo_id,
+                filename=settings.model_filename
+            ))
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to download model {settings.model_filename} from "
+                f"{settings.model_repo_id}: {e}"
             )
 
         try:
@@ -69,7 +74,7 @@ class OpenCVService:
             cls._output_name = cls._session.get_outputs()[0].name
 
             logger.info(
-                f"ONNX model loaded: {model_path}, "
+                f"ONNX model loaded: {model_path} (from {settings.model_repo_id}), "
                 f"input_size={settings.input_size}, "
                 f"embedding_dim={settings.embedding_dim}"
             )
