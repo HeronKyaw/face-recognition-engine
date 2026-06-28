@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: identity-api
+    restart: unless-stopped
+    environment:
+      MYSQL_HOST: host.docker.internal
+      MYSQL_PORT: 3306
+      MYSQL_USER: face_recognition_user
+      MYSQL_PASSWORD: F@ceRecognition4PI
+      MYSQL_DATABASE: face_recognition_db
+      MYSQL_POOL_SIZE: 10
+      MYSQL_MAX_OVERFLOW: 20
+      CHROMA_HOST: host.docker.internal
+      CHROMA_PORT: 8000
+      CHROMA_COLLECTION: face_embeddings
+      VERIFICATION_THRESHOLD: 0.4
+      MODEL_PATH: /app/models/arcface_mobilefacenet.onnx
+    ports:
+      - "5050:8000"
+    volumes:
+      - ./models:/app/models
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

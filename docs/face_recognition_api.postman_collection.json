@@ -1,0 +1,261 @@
+{
+  "info": {
+    "name": "Face Recognition API",
+    "description": "Collection for testing the Face Verification and Identity API.\n\nBase URL: http://localhost:8000\n\nPrerequisites:\n- A running instance (docker compose up --build)\n- An ArcFace ONNX model in models/\n- A test face image (JPEG/PNG) for enroll and verify requests",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Liveness probe. Returns healthy only if MySQL, ChromaDB, and OpenCV DNN all respond."
+          }
+        }
+      ]
+    },
+    {
+      "name": "User Management",
+      "item": [
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_001\",\n  \"name\": \"John Doe\",\n  \"metadata\": \"{\\\"department\\\": \\\"engineering\\\", \\\"role\\\": \\\"senior_engineer\\\"}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/users",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "description": "Create a new user identity record. Does NOT enroll a face."
+          }
+        },
+        {
+          "name": "Create User (Minimal)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"user_002\",\n  \"name\": \"Jane Smith\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/users",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users"]
+            }
+          }
+        },
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/users?page=1&page_size=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "page_size", "value": "20" }
+              ]
+            },
+            "description": "Paginated list of all registered users."
+          }
+        },
+        {
+          "name": "Get User",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/user_001",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "user_001"]
+            },
+            "description": "Fetch a specific user by user_id."
+          }
+        },
+        {
+          "name": "Update User",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"John Updated\",\n  \"metadata\": \"{\\\"department\\\": \\\"engineering\\\", \\\"role\\\": \\\"lead\\\"}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/user_001",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "user_001"]
+            },
+            "description": "Update user name and/or metadata."
+          }
+        },
+        {
+          "name": "Delete User",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/user_002",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "user_002"]
+            },
+            "description": "Delete user from MySQL AND their face embedding from ChromaDB."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Face Enrollment",
+      "item": [
+        {
+          "name": "Enroll Face",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "user_id",
+                  "value": "user_001",
+                  "type": "text"
+                },
+                {
+                  "key": "face_image",
+                  "src": "test_face.jpg",
+                  "type": "file"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/enroll",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "enroll"]
+            },
+            "description": "Enroll a face for an existing user.\n\nAnti-fraud: If this face already matches another enrolled user (distance < 0.4), enrollment is rejected.\n\n1. Replace test_face.jpg with your cropped face image\n2. user_001 must already exist (created via Create User)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Face Verification",
+      "item": [
+        {
+          "name": "Verify Face",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "face_image",
+                  "src": "verify_face.jpg",
+                  "type": "file"
+                },
+                {
+                  "key": "device_id",
+                  "value": "camera-gate-a-01",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/verify",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "verify"]
+            },
+            "description": "Verify a face against all enrolled users (1:N search).\n\n- Distance < 0.4: Success (returns user details)\n- Distance >= 0.4: 401 Unauthorized\n- No match: 401 Unauthorized\n\nOn success, the verification is logged with the device_id.\n\n1. Replace verify_face.jpg with your face image\n2. device_id is optional - identifies which device made the request"
+          }
+        },
+        {
+          "name": "Verify Face (No Device)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "face_image",
+                  "src": "verify_face.jpg",
+                  "type": "file"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/verify",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "verify"]
+            },
+            "description": "Verify without device_id (device_id is optional)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Verification Logs",
+      "item": [
+        {
+          "name": "Get All Logs",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/verification-logs?page=1&page_size=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "verification-logs"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "page_size", "value": "20" }
+              ]
+            },
+            "description": "Fetch all verification audit logs, most recent first."
+          }
+        },
+        {
+          "name": "Get Logs by User",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/verification-logs?user_id=user_001&page=1&page_size=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "verification-logs"],
+              "query": [
+                { "key": "user_id", "value": "user_001" },
+                { "key": "page", "value": "1" },
+                { "key": "page_size", "value": "20" }
+              ]
+            },
+            "description": "Filter verification logs by a specific user."
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    }
+  ]
+}
