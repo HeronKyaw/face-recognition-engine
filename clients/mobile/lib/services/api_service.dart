@@ -26,8 +26,9 @@ class ApiService {
     return (data['users'] as List).map((u) => User.fromJson(u as Map<String, dynamic>)).toList();
   }
 
-  Future<User> createUser(String userId, String name, {String? metadata}) async {
-    final body = <String, dynamic>{'user_id': userId, 'name': name};
+  Future<User> createUser(String name, {String? userId, String? metadata}) async {
+    final body = <String, dynamic>{'name': name};
+    if (userId != null) body['user_id'] = userId;
     if (metadata != null) body['metadata'] = metadata;
     final response = await http.post(
       Uri.parse('$baseUrl/api/v1/users'),

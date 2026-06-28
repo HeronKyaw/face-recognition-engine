@@ -1,17 +1,23 @@
-from pydantic import BaseModel, Field, ConfigDict
+from uuid import uuid4
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 from typing import Optional
 from datetime import datetime
 
 
 class UserCreate(BaseModel):
-    user_id: str = Field(..., min_length=1, max_length=50, description="Unique user identifier")
+    user_id: Optional[str] = Field(None, max_length=50, description="Unique user identifier (auto-generated if not provided)")
     name: str = Field(..., min_length=1, max_length=150, description="User's full name")
     metadata: Optional[str] = Field(None, description="JSON string for additional metadata")
+    
+    @model_validator(mode='after')
+    def set_user_id(self):
+        if self.user_id is None:
+            self.user_id = uuid4().hex[:8]
+        return self
     
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "user_id": "user_12345",
                 "name": "John Doe",
                 "metadata": "{\"department\": \"engineering\", \"role\": \"engineer\"}"
             }

@@ -52,13 +52,13 @@ class _UserSelectionPageState extends State<UserSelectionPage> {
   }
 
   Future<void> _createUser() async {
-    final result = await showDialog<Map<String, String>>(
+    final name = await showDialog<String>(
       context: context,
       builder: (ctx) => const _CreateUserDialog(),
     );
-    if (result != null) {
+    if (name != null) {
       try {
-        final user = await _api.createUser(result['userId']!, result['name']!);
+        final user = await _api.createUser(name);
         setState(() { _users.add(user); });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -498,12 +498,10 @@ class _CreateUserDialog extends StatefulWidget {
 
 class _CreateUserDialogState extends State<_CreateUserDialog> {
   final _formKey = GlobalKey<FormState>();
-  final _userIdController = TextEditingController();
   final _nameController = TextEditingController();
 
   @override
   void dispose() {
-    _userIdController.dispose();
     _nameController.dispose();
     super.dispose();
   }
@@ -530,32 +528,16 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
       ),
       content: Form(
         key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextFormField(
-              controller: _userIdController,
-              decoration: InputDecoration(
-                labelText: 'User ID',
-                hintText: 'e.g. user_001',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                prefixIcon: const Icon(Icons.badge_outlined, size: 20),
-              ),
-              validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
-              textCapitalization: TextCapitalization.none,
-            ),
-            const SizedBox(height: 14),
-            TextFormField(
-              controller: _nameController,
-              decoration: InputDecoration(
-                labelText: 'Name',
-                hintText: 'e.g. John Doe',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                prefixIcon: const Icon(Icons.person_outline, size: 20),
-              ),
-              validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
-            ),
-          ],
+        child: TextFormField(
+          controller: _nameController,
+          decoration: InputDecoration(
+            labelText: 'Name',
+            hintText: 'e.g. John Doe',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            prefixIcon: const Icon(Icons.person_outline, size: 20),
+          ),
+          validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
+          autofocus: true,
         ),
       ),
       actions: [
@@ -569,10 +551,7 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
           ),
           onPressed: () {
             if (_formKey.currentState!.validate()) {
-              Navigator.pop(context, {
-                'userId': _userIdController.text.trim(),
-                'name': _nameController.text.trim(),
-              });
+              Navigator.pop(context, _nameController.text.trim());
             }
           },
           child: const Text('Create'),
