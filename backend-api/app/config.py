@@ -25,7 +25,8 @@ class Settings(BaseSettings):
     chroma_distance_threshold: float = float(os.getenv("CHROMA_DISTANCE_THRESHOLD", "0.4"))
 
     # OpenCV / Model Configuration
-    model_path: str = os.getenv("MODEL_PATH", "/app/models/arcface_mobilefacenet.onnx")
+    model_repo_id: str = os.getenv("MODEL_REPO_ID", "garavv/arcface-onnx")
+    model_filename: str = os.getenv("MODEL_FILENAME", "arc.onnx")
     input_size: tuple = (112, 112)
     embedding_dim: int = 512
 
