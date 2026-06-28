@@ -91,6 +91,91 @@ flutter run
 | POST | `/api/v1/verify` | 1:N face verification |
 | GET | `/api/v1/verification-logs` | Audit log |
 
+## Backend Flow
+
+### Face Detection & Alignment
+
+```
+Upload image → MediaPipe Face Mesh (468 landmarks)
+                → Compute 5 ArcFace reference points (eye centers, nose tip, mouth corners)
+                → cv2.estimateAffinePartial2D() aligns to 5 canonical positions
+                → cv2.warpAffine() produces 112×112 rotation-normalized crop
+```
+
+Critical for accuracy — ArcFace models are trained on aligned faces. Skipping alignment produces poor embeddings.
+
+### Embedding Extraction
+
+```
+112×112 aligned face → Convert BGR→RGB
+                        → Normalize: (pixel - 127.5) / 128.0
+                        → ONNX ArcFace MobileFaceNet
+                        → 512-d raw embedding
+                        → L2-normalize: emb = emb / ||emb||
+```
+
+The L2 normalization ensures cosine similarity between any two embeddings equals their dot product.
+
+### 1:N Vector Search (ChromaDB)
+
+Embeddings are stored in a ChromaDB collection with HNSW index using cosine distance (`distance = 1 - cosine_similarity`). Lower distance = more similar. ArcFace achieves ~0.15–0.3 for genuine matches and >0.6 for impostors.
+
+### Enrollment
+
+```
+POST /api/v1/enroll
+  1. Verify user exists in MySQL (404 if not)
+  2. Extract embedding from uploaded face image
+  3. Search ChromaDB — if distance < 0.4: REJECT (anti-fraud)
+  4. Store embedding in ChromaDB mapped to user_id
+  5. Mark user as face_enrolled in MySQL
+```
+
+Anti-fraud prevents one person registering multiple accounts.
+
+### Verification
+
+```
+POST /api/v1/verify
+  1. Extract embedding from uploaded face image
+  2. Search ChromaDB for nearest neighbor (top-1)
+  3. If no match or distance >= 0.4 → 401 Unauthorized
+  4. Fetch matched user from MySQL
+  5. Log verification to audit trail
+  6. Return 200 with user details
+```
+
+This is 1:N identification — the system searches all enrolled faces and returns the best match within threshold.
+
+### End-to-End Flow
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  1. Image Upload (multipart/form-data)                      │
+├──────────────────────────────────────────────────────────────┤
+│  2. Decode bytes → OpenCV BGR image                        │
+├──────────────────────────────────────────────────────────────┤
+│  3. MediaPipe Face Mesh → 468 landmarks → 5 reference pts  │
+├──────────────────────────────────────────────────────────────┤
+│  4. cv2.estimateAffinePartial2D + warpAffine → 112×112     │
+│     (rotation/scale/translation normalization)              │
+├──────────────────────────────────────────────────────────────┤
+│  5. Normalize pixels → (pixel - 127.5) / 128.0             │
+├──────────────────────────────────────────────────────────────┤
+│  6. ONNX ArcFace MobileFaceNet → 512-d raw embedding        │
+├──────────────────────────────────────────────────────────────┤
+│  7. L2-normalize: emb = emb / ||emb||                       │
+├──────────────────────────────────────────────────────────────┤
+│  8. ChromaDB HNSW cosine search (1:N, top-1)                │
+│     ┌────────────┐                                          │
+│     │ distance   │  < 0.4 → MATCH (verified/enrolled)       │
+│     │ < 0.4?     │  ≥ 0.4 → NO MATCH (reject)              │
+│     └────────────┘                                          │
+├──────────────────────────────────────────────────────────────┤
+│  9. MySQL: fetch user details / log audit trail             │
+└──────────────────────────────────────────────────────────────┘
+```
+
 ## Tech Stack
 
 | Component | Technology |
