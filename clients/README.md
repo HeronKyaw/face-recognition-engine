@@ -2,6 +2,8 @@
 
 This directory contains the front-end client applications that consume the Face Recognition API.
 
+See [docs/setup.md](../docs/setup.md) for the full stack setup.
+
 ## web/
 
 A **Next.js 16** (App Router) web dashboard. Provides user management, face enrollment/verification with webcam or file upload, and paginated verification audit logs. Styled with Tailwind CSS v4. Runs at `http://localhost:3000`.

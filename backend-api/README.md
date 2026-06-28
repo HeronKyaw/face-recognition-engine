@@ -14,19 +14,14 @@ Client ──▶ FastAPI ──▶ OpenCV DNN (embedding extraction)
 
 - Docker & Docker Compose
 - An ArcFace/MobileFaceNet ONNX model placed at `models/arcface_mobilefacenet.onnx`
-- running MySQL and ChromaDB instances
+- Running MySQL and ChromaDB instances (see [docs/setup.md](../docs/setup.md))
 
 ## Quick Start
 
+See [docs/setup.md](../docs/setup.md) for the full setup guide covering MySQL, ChromaDB, and this API.
+
 ```bash
-# 1. Configure connection to your services
-cp .env.example .env
-# Edit .env with your MySQL and ChromaDB hosts/credentials
-
-# 2. Initialize the database schema
-docker exec -i your-mysql-container mysql -u root -p < db/init.sql
-
-# 3. Build and run
+cp .env.example .env          # configure MySQL & ChromaDB connections
 docker compose up --build
 ```
 

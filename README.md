@@ -49,33 +49,24 @@ face-recognition-engine/
 
 ## Quick Start
 
-### Backend API
+See [docs/setup.md](docs/setup.md) for detailed setup instructions covering MySQL, ChromaDB, the backend API, and the web client.
 
 ```bash
-cd backend-api
-cp .env.example .env   # configure MySQL & ChromaDB connections
-docker compose up --build
+# TL;DR — full stack with Docker
+docker run -d --name face-mysql -p 3306:3306 -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=face_recognition_db -e MYSQL_USER=face_recognition_user -e MYSQL_PASSWORD=F@ceRecognition4PI mysql:8.0
+docker run -d --name face-chroma -p 8000:8000 chromadb/chroma:0.6.3
+cd backend-api && cp .env.example .env && docker compose up --build
 ```
 
-API available at `http://localhost:5050`. Swagger docs at `/docs`.
+API at `http://localhost:5050` — Swagger docs at `/docs`.  
+Web client at `http://localhost:3000` — run `cd clients/web && npm install && npm run dev`.
 
-### Web Client
+## Documentation
 
-```bash
-cd clients/web
-npm install
-npm run dev
-```
-
-Opens at `http://localhost:3000`.
-
-### Mobile App
-
-```bash
-cd clients/mobile
-flutter pub get
-flutter run
-```
+| File | Contents |
+|------|----------|
+| [docs/setup.md](docs/setup.md) | Full setup guide (MySQL, ChromaDB, API, Web) |
+| [docs/face_recognition_api.postman_collection.json](docs/face_recognition_api.postman_collection.json) | Postman collection for all API endpoints |
 
 ## API Endpoints
 
