@@ -8,9 +8,11 @@ WORKDIR /app
 
 COPY requirements.txt .
 COPY app/ ./app/
-COPY models/ ./models/
 
 RUN pip install --no-cache-dir -r requirements.txt
+
+ENV HF_HOME=/app/.cache/huggingface
+RUN mkdir -p $HF_HOME && python -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='garavv/arcface-onnx', filename='arc.onnx')"
 
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser

@@ -19,10 +19,9 @@ services:
       CHROMA_PORT: 8000
       CHROMA_COLLECTION: face_embeddings
       VERIFICATION_THRESHOLD: 0.4
-      MODEL_PATH: /app/models/arcface_mobilefacenet.onnx
+      MODEL_REPO_ID: garavv/arcface-onnx
+      MODEL_FILENAME: arc.onnx
     ports:
       - "5050:8000"
-    volumes:
-      - ./models:/app/models
     extra_hosts:
       - "host.docker.internal:host-gateway"
