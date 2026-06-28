@@ -20,8 +20,6 @@ Schema Assumptions (identity_db.users):
 - name: VARCHAR(150) NOT NULL
 - metadata: TEXT - JSON string for flexible attributes
 - created_at: TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-
-NO attendance/check-in/HR fields - pure identity management.
 """
 import logging
 import json
