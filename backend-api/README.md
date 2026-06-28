@@ -13,8 +13,8 @@ Client ──▶ FastAPI ──▶ OpenCV DNN (embedding extraction)
 ## Prerequisites
 
 - Docker & Docker Compose
-- An ArcFace/MobileFaceNet ONNX model placed at `models/arcface_mobilefacenet.onnx`
 - Running MySQL and ChromaDB instances (see [docs/setup.md](../docs/setup.md))
+- Internet connection (the ArcFace ONNX model is auto-downloaded from HuggingFace on first run)
 
 ## Quick Start
 
@@ -41,7 +41,8 @@ The API starts at `http://localhost:8000`. Swagger docs at `/docs`.
 | `CHROMA_PORT` | `8000` | ChromaDB server port |
 | `CHROMA_COLLECTION` | `face_embeddings` | ChromaDB collection name |
 | `VERIFICATION_THRESHOLD` | `0.4` | Cosine distance threshold |
-| `MODEL_PATH` | `/app/models/arcface_mobilefacenet.onnx` | ONNX model path |
+| `MODEL_REPO_ID` | `garavv/arcface-onnx` | HuggingFace model repo ID |
+| `MODEL_FILENAME` | `arc.onnx` | Model filename within the repo |
 
 ## API Endpoints
 
@@ -96,7 +97,6 @@ The API starts at `http://localhost:8000`. Swagger docs at `/docs`.
 │   │   ├── chroma_service.py# Vector indexing & search
 │   │   └── opencv_service.py# DNN model & embedding extraction
 │   └── schemas/             # Pydantic models
-├── models/                  # Place ONNX model here
 ├── db/init.sql              # Database schema
 ├── Dockerfile               # Multi-stage OpenCV 5 build
 └── docker-compose.yml

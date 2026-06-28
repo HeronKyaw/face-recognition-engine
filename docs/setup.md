@@ -4,7 +4,7 @@
 
 - [Docker](https://docs.docker.com/get-docker/) (for containerized dependencies or the API itself)
 - [Node.js](https://nodejs.org/) 18+ (for the web client)
-- An ArcFace/MobileFaceNet ONNX model at `backend-api/models/arcface_mobilefacenet.onnx`
+- Internet connection (the ArcFace ONNX model is auto-downloaded from HuggingFace on first run)
 
 ---
 

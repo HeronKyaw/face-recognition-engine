@@ -36,7 +36,6 @@ face-recognition-engine/
 │   │   ├── config.py    # Pydantic settings
 │   │   ├── schemas/     # Pydantic request/response models
 │   │   └── services/    # MySQL, ChromaDB, OpenCV services
-│   ├── models/          # ONNX model files
 │   ├── db/init.sql      # MySQL schema
 │   ├── Dockerfile
 │   └── docker-compose.yml

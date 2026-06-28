@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Face Recognition API",
-    "description": "Collection for testing the Face Verification and Identity API.\n\nBase URL: http://localhost:8000\n\nPrerequisites:\n- A running instance (docker compose up --build)\n- An ArcFace ONNX model in models/\n- A test face image (JPEG/PNG) for enroll and verify requests",
+    "description": "Collection for testing the Face Verification and Identity API.\n\nBase URL: http://localhost:8000\n\nPrerequisites:\n- A running instance (docker compose up --build)\n- A test face image (JPEG/PNG) for enroll and verify requests",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
