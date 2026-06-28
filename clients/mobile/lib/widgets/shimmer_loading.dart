@@ -15,12 +15,12 @@ class ShimmerUserList extends StatelessWidget {
         shrinkWrap: true,
         itemCount: 6,
         itemBuilder: (_, _) => Padding(
-          padding: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.only(bottom: 10),
           child: Container(
             height: 80,
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(16),
             ),
           ),
         ),
