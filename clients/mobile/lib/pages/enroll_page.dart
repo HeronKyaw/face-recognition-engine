@@ -22,6 +22,7 @@ class _EnrollPageState extends State<EnrollPage>
   bool _isEnrolling = false;
   String? _resultMessage;
   bool? _success;
+  bool _isResetting = false;
 
   @override
   void initState() {
@@ -49,7 +50,20 @@ class _EnrollPageState extends State<EnrollPage>
   }
 
   Future<void> _enroll() async {
-    if (_controller == null || !_isInitialized || _isEnrolling) return;
+    if (_controller == null || !_isInitialized || _isEnrolling || _isResetting) return;
+
+    // If user already has a face enrolled, reset it first
+    if (widget.user.faceEnrolled) {
+      setState(() => _isResetting = true);
+      try {
+        await _api.resetEnrollment(widget.user.userId);
+      } catch (e) {
+        if (mounted) setState(() => _resultMessage = "Reset failed: $e");
+        setState(() => _isResetting = false);
+        return;
+      }
+      setState(() => _isResetting = false);
+    }
     setState(() { _isEnrolling = true; _resultMessage = null; });
     try {
       final image = await _controller!.takePicture();
@@ -160,6 +174,39 @@ class _EnrollPageState extends State<EnrollPage>
             ),
           ),
 
+          // Already enrolled banner
+          if (widget.user.faceEnrolled && _resultMessage == null) {
+            return Positioned(
+              top: MediaQuery.of(context).padding.top + 80,
+              left: 20,
+              right: 20,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade600,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.amber.withValues(alpha: 0.3),
+                      blurRadius: 20,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.info_rounded, color: Colors.white, size: 22),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text("Face already enrolled. Tap capture to reset & re-enroll.",
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+
           // Result banner
           if (_resultMessage != null)
             Positioned(
@@ -225,7 +272,7 @@ class _EnrollPageState extends State<EnrollPage>
                     child: child,
                   ),
                   child: GestureDetector(
-                    onTap: _isEnrolling ? null : _enroll,
+                    onTap: _isEnrolling || _isResetting ? null : _enroll,
                     child: Container(
                       width: 72,
                       height: 72,
@@ -248,7 +295,7 @@ class _EnrollPageState extends State<EnrollPage>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _isEnrolling ? 'Enrolling...' : 'Tap to capture',
+                  _isResetting ? 'Resetting...' : _isEnrolling ? 'Enrolling...' : widget.user.faceEnrolled ? 'Tap to reset & enroll' : 'Tap to capture',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.8),
                     fontSize: 13,

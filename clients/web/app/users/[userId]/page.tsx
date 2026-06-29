@@ -55,6 +55,19 @@ export default function UserDetailPage() {
     }
   };
 
+  const handleResetEnrollment = async () => {
+    if (!confirm(`Reset face enrollment for "${user?.name}"? They will need to re-enroll.`)) return;
+    setError("");
+    setMessage("");
+    try {
+      await api.resetEnrollment(userId);
+      setMessage("Enrollment reset successfully");
+      load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    }
+  };
+
   if (loading) {
     return (
       <div className="max-w-lg mx-auto space-y-5">
@@ -151,6 +164,11 @@ export default function UserDetailPage() {
           <button onClick={handleUpdate} className="flex-1 bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 shadow-sm transition-colors">
             Save Changes
           </button>
+          {user.face_enrolled && (
+            <button onClick={handleResetEnrollment} className="px-5 py-2.5 rounded-lg text-sm font-medium border border-amber-200 text-amber-600 hover:bg-amber-50 transition-colors">
+              Reset Enrollment
+            </button>
+          )}
           <button onClick={handleDelete} className="px-5 py-2.5 rounded-lg text-sm font-medium border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
             Delete
           </button>

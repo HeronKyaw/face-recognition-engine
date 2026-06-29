@@ -33,7 +33,7 @@ settings = get_settings()
 
 @dataclass
 class SearchResult:
-    """Result from a 1:N vector search."""
+    "Result from a 1:N vector search."
     user_id: str
     distance: float
     embedding: List[float]
@@ -57,7 +57,7 @@ class ChromaService:
     
     @classmethod
     def initialize(cls) -> None:
-        """Initialize ChromaDB client and get/create collection on startup."""
+        "Initialize ChromaDB client and get/create collection on startup."
         if cls._client is not None:
             logger.warning("ChromaDB client already initialized")
             return
@@ -90,16 +90,24 @@ class ChromaService:
     
     @classmethod
     def close(cls) -> None:
-        """Close ChromaDB client connections."""
+        "Close ChromaDB client connections."
         cls._client = None
         cls._collection = None
         logger.info("ChromaDB client closed")
     
     @classmethod
     def _ensure_initialized(cls) -> None:
-        """Ensure client and collection are initialized."""
+        "Ensure client and collection are initialized and exist on the server."
         if cls._client is None or cls._collection is None:
             raise RuntimeError("ChromaDB not initialized. Call initialize() first.")
+        try:
+            cls._client.get_collection(name=settings.chroma_collection_name)
+        except Exception:
+            logger.warning("ChromaDB collection missing on server, recreating...")
+            cls._collection = cls._client.get_or_create_collection(
+                name=settings.chroma_collection_name,
+                metadata={"hnsw:space": "cosine"},
+            )
     
     @classmethod
     def add_embedding(cls, user_id: str, embedding: List[float]) -> bool:
@@ -201,7 +209,7 @@ class ChromaService:
     
     @classmethod
     def get_embedding(cls, user_id: str) -> Optional[List[float]]:
-        """Retrieve a user's embedding (for debugging/admin)."""
+        "Retrieve a user's embedding (for debugging/admin)."
         cls._ensure_initialized()
         
         try:
@@ -215,13 +223,35 @@ class ChromaService:
     
     @classmethod
     def count(cls) -> int:
-        """Get total number of embeddings in the collection."""
+        "Get total number of embeddings in the collection."
         cls._ensure_initialized()
         return cls._collection.count()
     
     @classmethod
+    def reset_collection(cls) -> int:
+        """
+        Drop and recreate the face_embeddings collection to clear all vectors.
+        
+        Returns:
+            Number of embeddings that were removed
+        """
+        cls._ensure_initialized()
+
+        count_before = cls._collection.count()
+        cls._client.delete_collection(settings.chroma_collection_name)
+        cls._collection = cls._client.create_collection(
+            name=settings.chroma_collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
+        logger.info(
+            f"ChromaDB collection reset: removed {count_before} embeddings, "
+            f"created new empty collection"
+        )
+        return count_before
+    
+    @classmethod
     def health_check(cls) -> bool:
-        """Health check for readiness/liveness probes."""
+        "Health check for readiness/liveness probes."
         try:
             cls._ensure_initialized()
             cls._client.list_collections()

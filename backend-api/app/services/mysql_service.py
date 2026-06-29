@@ -293,6 +293,19 @@ class MySQLService:
             cursor = conn.cursor()
             cursor.execute(query, (enrolled, user_id))
 
+    @classmethod
+    def reset_all_face_enrolled(cls) -> int:
+        """Reset face_enrolled flag for all users.
+        
+        Returns:
+            Number of affected rows
+        """
+        query = "UPDATE users SET face_enrolled = FALSE"
+        with cls.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query)
+            return cursor.rowcount
+
     # ==================== Verification Audit Log ====================
 
     @classmethod
@@ -373,3 +386,4 @@ class MySQLService:
         except Exception as e:
             logger.error(f"MySQL health check failed: {e}")
             return False
+

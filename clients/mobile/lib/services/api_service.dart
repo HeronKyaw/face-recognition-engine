@@ -59,7 +59,25 @@ class ApiService {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
-  Future<List<VerificationLog>> listLogs({String? userId, int page = 1, int pageSize = 50}) async {
+  Future<Map<String, dynamic>> resetEnrollment(String userId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/v1/users/$userId/reset-enrollment'),
+      headers: _jsonHeaders,
+    );
+    _checkResponse(response);
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> resetEnrollments() async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/v1/reset-enrollments'),
+      headers: _jsonHeaders,
+    );
+    _checkResponse(response);
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+    Future<List<VerificationLog>> listLogs({String? userId, int page = 1, int pageSize = 50}) async {
     var uri = '$baseUrl/api/v1/verification-logs?page=$page&page_size=$pageSize';
     if (userId != null) uri += '&user_id=$userId';
     final response = await http.get(Uri.parse(uri), headers: _jsonHeaders);

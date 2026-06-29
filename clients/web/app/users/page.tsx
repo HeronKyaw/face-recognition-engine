@@ -10,6 +10,7 @@ export default function UsersPage() {
   const [pageSize] = useState(20);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [resetting, setResetting] = useState<string | false>(false);
 
   const load = () => {
     setLoading(true);
@@ -31,12 +32,32 @@ export default function UsersPage() {
           <h1 className="text-xl font-semibold text-slate-900">Users</h1>
           <p className="text-sm text-slate-500 mt-0.5">{total} total registered</p>
         </div>
-        <a
-          href="/users/create"
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm transition-colors"
-        >
-          + New User
-        </a>
+        <div className="flex gap-2">
+          <button
+            onClick={async () => {
+              if (!confirm("Reset ALL face enrollments? All users will need to re-enroll.")) return;
+              setResetting("all");
+              try {
+                await api.resetAllEnrollments();
+                load();
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "Reset failed");
+              } finally {
+                setResetting(false);
+              }
+            }}
+            disabled={resetting !== false}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-50 text-amber-700 text-sm font-medium hover:bg-amber-100 border border-amber-200 transition-colors disabled:opacity-50"
+          >
+            {resetting === "all" ? "Resetting..." : "\u21bb Reset All"}
+          </button>
+          <a
+            href="/users/create"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm transition-colors"
+          >
+            + New User
+          </a>
+        </div>
       </div>
 
       {error && (
@@ -100,9 +121,31 @@ export default function UsersPage() {
                     </td>
                     <td className="px-5 py-3.5 text-slate-500 text-xs">{new Date(u.created_at).toLocaleDateString()}</td>
                     <td className="px-5 py-3.5 text-right">
-                      <a href={`/users/${u.user_id}`} className="text-indigo-600 hover:text-indigo-800 text-xs font-medium hover:underline">
-                        View →
-                      </a>
+                      <div className="flex items-center justify-end gap-3">
+                        {u.face_enrolled && (
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`Reset enrollment for "${u.name}"?`)) return;
+                              setResetting(u.user_id);
+                              try {
+                                await api.resetEnrollment(u.user_id);
+                                load();
+                              } catch (e) {
+                                setError(e instanceof Error ? e.message : "Reset failed");
+                              } finally {
+                                setResetting(false);
+                              }
+                            }}
+                            disabled={resetting !== false}
+                            className="text-amber-600 hover:text-amber-800 text-xs font-medium hover:underline disabled:opacity-50"
+                          >
+                            {resetting === u.user_id ? "..." : "Reset"}
+                          </button>
+                        )}
+                        <a href={`/users/${u.user_id}`} className="text-indigo-600 hover:text-indigo-800 text-xs font-medium hover:underline">
+                          View →
+                        </a>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -136,3 +179,6 @@ export default function UsersPage() {
     </div>
   );
 }
+
+
+

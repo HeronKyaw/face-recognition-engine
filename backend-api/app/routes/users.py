@@ -141,6 +141,59 @@ async def delete_user(
     )
 
 
+# ==================== Enrollment Reset ====================
+
+@router.post(
+    "/users/{user_id}/reset-enrollment",
+    summary="Reset face enrollment for a user",
+    description="""
+    Clear a user's face embedding from ChromaDB and reset face_enrolled flag.
+    User can then re-enroll with a fresh image using POST /api/v1/enroll.
+    Useful during OpenCV migration when old embeddings are incompatible.
+    """,
+)
+async def reset_user_enrollment(
+    user_id: str,
+    mysql: MySQLService = Depends(get_mysql_service),
+    chroma: ChromaService = Depends(get_chroma_service),
+):
+    if not mysql.user_exists(user_id):
+        raise HTTPException(status_code=404, detail=f"User '{user_id}' not found")
+
+    chroma.delete_embedding(user_id)
+    mysql.set_face_enrolled(user_id, enrolled=False)
+
+    return {
+        "success": True,
+        "user_id": user_id,
+        "message": "Enrollment reset successfully",
+    }
+
+
+@router.post(
+    "/reset-enrollments",
+    summary="Reset all face enrollments",
+    description="""
+    Clear ALL face embeddings from ChromaDB and reset face_enrolled flag for ALL users.
+    All users will need to re-enroll with POST /api/v1/enroll.
+    Use carefully - this cannot be undone.
+    """,
+)
+async def reset_all_enrollments(
+    chroma: ChromaService = Depends(get_chroma_service),
+    mysql: MySQLService = Depends(get_mysql_service),
+):
+    embeddings_cleared = chroma.reset_collection()
+    users_reset = mysql.reset_all_face_enrolled()
+
+    return {
+        "success": True,
+        "embeddings_cleared": embeddings_cleared,
+        "users_reset": users_reset,
+        "message": f"Cleared {embeddings_cleared} embeddings and reset {users_reset} users",
+    }
+
+
 # ==================== Verification Logs ====================
 
 @router.get(
@@ -163,3 +216,4 @@ async def get_verification_logs(
         "page": page,
         "page_size": page_size,
     }
+

@@ -44,6 +44,14 @@ export interface VerifyResponse {
   message: string;
 }
 
+
+export interface ResetEnrollmentResponse {
+  success: boolean;
+  user_id?: string;
+  message: string;
+  embeddings_cleared?: number;
+  users_reset?: number;
+}
 export interface VerificationLog {
   id: number;
   user_id?: string;
@@ -105,6 +113,12 @@ export const api = {
     return request<VerifyResponse>("/api/v1/verify", { method: "POST", body: form });
   },
 
+  resetEnrollment: (userId: string) =>
+    request<ResetEnrollmentResponse>(`/api/v1/users/${userId}/reset-enrollment`, { method: "POST" }),
+
+  resetAllEnrollments: () =>
+    request<ResetEnrollmentResponse>("/api/v1/reset-enrollments", { method: "POST" }),
+
   listLogs: (params?: { user_id?: string; page?: number; page_size?: number }) => {
     const q = new URLSearchParams();
     if (params?.user_id) q.set("user_id", params.user_id);
@@ -113,3 +127,6 @@ export const api = {
     return request<VerificationLogsResponse>(`/api/v1/verification-logs?${q}`);
   },
 };
+
+
+
