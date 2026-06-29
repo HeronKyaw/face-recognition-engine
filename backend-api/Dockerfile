@@ -9,14 +9,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ninja-build \
     pkg-config \
-    libavcodec-dev \
-    libavformat-dev \
-    libswscale-dev \
     libtbb-dev \
     libjpeg-dev \
     libpng-dev \
     libtiff-dev \
     libopenblas-dev \
+    libprotobuf-dev \
+    protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
@@ -28,38 +27,20 @@ WORKDIR /opt/opencv/build
 RUN cmake -GNinja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/opt/opencv/install \
+    -DBUILD_LIST=core,imgproc,imgcodecs,dnn \
     -DBUILD_EXAMPLES=OFF \
     -DBUILD_TESTS=OFF \
     -DBUILD_PERF_TESTS=OFF \
     -DBUILD_JAVA=OFF \
     -DBUILD_PYTHON=OFF \
-    -DBUILD_opencv_python3=OFF \
-    -DBUILD_opencv_python_bindings_generator=OFF \
-    -DBUILD_opencv_java_bindings_generator=OFF \
-    -DBUILD_opencv_ts=OFF \
-    -DBUILD_opencv_apps=OFF \
     -DBUILD_SHARED_LIBS=ON \
-    -DWITH_IPP=OFF \
-    -DWITH_FFMPEG=ON \
+    -DWITH_FFMPEG=OFF \
     -DWITH_GSTREAMER=OFF \
-    -DWITH_V4L=ON \
     -DWITH_GTK=OFF \
     -DWITH_OPENCL=OFF \
     -DWITH_TBB=ON \
     -DWITH_EIGEN=ON \
-    -DBUILD_opencv_dnn=ON \
-    -DBUILD_opencv_imgproc=ON \
-    -DBUILD_opencv_imgcodecs=ON \
-    -DBUILD_opencv_core=ON \
-    -DBUILD_opencv_videoio=OFF \
-    -DBUILD_opencv_highgui=OFF \
-    -DBUILD_opencv_flann=OFF \
-    -DBUILD_opencv_features2d=OFF \
-    -DBUILD_opencv_calib3d=OFF \
-    -DBUILD_opencv_objdetect=OFF \
-    -DBUILD_opencv_photo=OFF \
-    -DBUILD_opencv_stitching=OFF \
-    -DBUILD_opencv_ml=OFF \
+    -DPROTOBUF_UPDATE_FILES=ON \
     /opt/opencv && \
     ninja install && \
     rm -rf /opt/opencv/build
@@ -72,6 +53,7 @@ FROM python:3.11-slim-bookworm AS extension-builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
+    git \
     ninja-build \
     && rm -rf /var/lib/apt/lists/*
 
