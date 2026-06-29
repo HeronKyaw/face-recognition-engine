@@ -1,7 +1,7 @@
 import logging
+import os
+import urllib.request
 import numpy as np
-import cv2
-import onnxruntime
 from typing import Optional
 from pathlib import Path
 from huggingface_hub import hf_hub_download
@@ -11,190 +11,81 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-try:
-    import mediapipe as mp
-    _HAS_MEDIAPIPE = True
-except ImportError:
-    _HAS_MEDIAPIPE = False
-    logger.warning(
-        "mediapipe not installed. Face detection and alignment will be disabled. "
-        "Install it with: pip install mediapipe"
-    )
 
-# MediaPipe Face Mesh landmark indices for the 5 ArcFace alignment points
-# Using inner+outer eye corners to compute eye centers, nose tip, and mouth corners
-_LEFT_EYE_OUTER = 33
-_LEFT_EYE_INNER = 133
-_RIGHT_EYE_OUTER = 263
-_RIGHT_EYE_INNER = 362
-_NOSE_TIP = 1
-_LEFT_MOUTH = 61
-_RIGHT_MOUTH = 291
-
-# Canonical landmark positions for 112x112 aligned face (ArcFace/InsightFace standard)
-_ALIGN_CANONICAL = np.array([
-    [38.2946, 51.6963],
-    [73.5318, 51.5014],
-    [56.0252, 71.7366],
-    [41.5493, 92.3655],
-    [70.7299, 92.2041],
-], dtype=np.float64)
+def _download_file(url: str, dest: Path) -> Path:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Downloading {url} to {dest}")
+    urllib.request.urlretrieve(url, dest)
+    logger.info(f"Downloaded {dest}")
+    return dest
 
 
 class OpenCVService:
-    _session: Optional[onnxruntime.InferenceSession] = None
-    _input_name: Optional[str] = None
-    _output_name: Optional[str] = None
-    _face_mesh: Optional[object] = None
+    _engine: Optional[object] = None
 
     @classmethod
     def initialize(cls) -> None:
-        if cls._session is not None:
-            logger.warning("ONNX model already loaded")
+        if cls._engine is not None:
+            logger.warning("Face engine already loaded")
             return
 
+        cache_dir = Path(settings.face_detect_model_path or
+                         os.path.join(os.path.dirname(__file__), "..", "..", "models"))
+
+        face_detect_path = Path(cache_dir) / "face_detection_yunet_2026may.onnx"
+        if not face_detect_path.exists():
+            face_detect_path = _download_file(
+                settings.face_detect_model_url, face_detect_path
+            )
+
         try:
-            model_path = Path(hf_hub_download(
+            rec_model_path = Path(hf_hub_download(
                 repo_id=settings.model_repo_id,
                 filename=settings.model_filename
             ))
         except Exception as e:
             raise RuntimeError(
-                f"Failed to download model {settings.model_filename} from "
-                f"{settings.model_repo_id}: {e}"
+                f"Failed to download recognition model {settings.model_repo_id}/{settings.model_filename}: {e}"
             )
 
         try:
-            cls._session = onnxruntime.InferenceSession(
-                str(model_path),
-                providers=["CPUExecutionProvider"]
+            import opencv5_native
+            cls._engine = opencv5_native.FaceEngine(
+                str(face_detect_path),
+                str(rec_model_path),
+                input_size=settings.input_size[0],
+                embedding_dim=settings.embedding_dim,
             )
-
-            cls._input_name = cls._session.get_inputs()[0].name
-            cls._output_name = cls._session.get_outputs()[0].name
-
             logger.info(
-                f"ONNX model loaded: {model_path} (from {settings.model_repo_id}), "
-                f"input_size={settings.input_size}, "
-                f"embedding_dim={settings.embedding_dim}"
+                f"OpenCV 5 native engine loaded: rec_model={settings.model_repo_id}/{settings.model_filename}, "
+                f"face_detect={face_detect_path}, "
+                f"input_size={settings.input_size}, embedding_dim={settings.embedding_dim}"
             )
 
-            cls._init_mediapipe()
-            cls._warmup()
+            if not cls.health_check():
+                raise RuntimeError("Engine health check failed after initialization")
 
+        except ImportError:
+            raise RuntimeError(
+                "opencv5_native module not found. Ensure the C++ extension is built. "
+                "Run: cd lib/opencv5_native && cmake -B build && cmake --build build"
+            )
         except Exception as e:
-            logger.error(f"Failed to load ONNX model: {e}")
+            logger.error(f"Failed to initialize native engine: {e}")
             raise
 
     @classmethod
-    def _init_mediapipe(cls) -> None:
-        if not _HAS_MEDIAPIPE:
-            logger.warning(
-                "MediaPipe not available. Face detection and alignment disabled."
-            )
-            return
-        if cls._face_mesh is not None:
-            return
-        cls._face_mesh = mp.solutions.face_mesh.FaceMesh(
-            static_image_mode=True,
-            max_num_faces=1,
-            min_detection_confidence=0.5,
-        )
-        logger.info("MediaPipe Face Mesh initialized")
-
-    @classmethod
-    def _warmup(cls) -> None:
-        dummy_input = np.random.randint(0, 255, (112, 112, 3), dtype=np.uint8)
-        try:
-            _ = cls.extract_embedding(dummy_input, skip_detection=True)
-        except RuntimeError:
-            pass
-        logger.info("ONNX model warmed up")
-
-    @classmethod
     def close(cls) -> None:
-        cls._session = None
-        cls._input_name = None
-        cls._output_name = None
-        if cls._face_mesh is not None:
-            cls._face_mesh.close()
-            cls._face_mesh = None
-        logger.info("ONNX model released")
+        cls._engine = None
+        logger.info("OpenCV 5 native engine released")
 
     @classmethod
     def _ensure_initialized(cls) -> None:
-        if cls._session is None:
-            raise RuntimeError("ONNX model not loaded. Call initialize() first.")
+        if cls._engine is None:
+            raise RuntimeError("Face engine not loaded. Call initialize() first.")
 
     @classmethod
-    def detect_and_align_face(cls, image: np.ndarray) -> np.ndarray:
-        if cls._face_mesh is None:
-            if not _HAS_MEDIAPIPE:
-                raise RuntimeError(
-                    "MediaPipe is required for face detection and alignment. "
-                    "Install it with: pip install mediapipe"
-                )
-            raise RuntimeError("MediaPipe not initialized. Call initialize() first.")
-
-        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        results = cls._face_mesh.process(rgb)
-
-        if not results or not results.multi_face_landmarks:
-            raise ValueError("No face detected in image")
-
-        landmarks = results.multi_face_landmarks[0]
-        h, w = image.shape[:2]
-
-        src_points = np.array([
-            [
-                (landmarks.landmark[_LEFT_EYE_OUTER].x + landmarks.landmark[_LEFT_EYE_INNER].x) / 2 * w,
-                (landmarks.landmark[_LEFT_EYE_OUTER].y + landmarks.landmark[_LEFT_EYE_INNER].y) / 2 * h,
-            ],
-            [
-                (landmarks.landmark[_RIGHT_EYE_OUTER].x + landmarks.landmark[_RIGHT_EYE_INNER].x) / 2 * w,
-                (landmarks.landmark[_RIGHT_EYE_OUTER].y + landmarks.landmark[_RIGHT_EYE_INNER].y) / 2 * h,
-            ],
-            [
-                landmarks.landmark[_NOSE_TIP].x * w,
-                landmarks.landmark[_NOSE_TIP].y * h,
-            ],
-            [
-                landmarks.landmark[_LEFT_MOUTH].x * w,
-                landmarks.landmark[_LEFT_MOUTH].y * h,
-            ],
-            [
-                landmarks.landmark[_RIGHT_MOUTH].x * w,
-                landmarks.landmark[_RIGHT_MOUTH].y * h,
-            ],
-        ], dtype=np.float64)
-
-        tform = cv2.estimateAffinePartial2D(src_points, _ALIGN_CANONICAL)
-        if tform is None or len(tform[0]) == 0:
-            raise ValueError("Face alignment failed")
-
-        aligned = cv2.warpAffine(
-            image, tform[0], (112, 112),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=(127, 127, 127),
-        )
-
-        return aligned
-
-    @classmethod
-    def preprocess_image(cls, image: np.ndarray) -> np.ndarray:
-        resized = cv2.resize(image, settings.input_size, interpolation=cv2.INTER_LINEAR)
-
-        rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-
-        normalized = (rgb.astype(np.float32) - 127.5) / 128.0
-
-        blob = np.expand_dims(normalized, axis=0).astype(np.float32)
-
-        return blob
-
-    @classmethod
-    def extract_embedding(cls, image: np.ndarray, skip_detection: bool = False) -> np.ndarray:
+    def extract_embedding(cls, image: np.ndarray) -> np.ndarray:
         cls._ensure_initialized()
 
         if image is None or image.size == 0:
@@ -203,48 +94,47 @@ class OpenCVService:
         if len(image.shape) != 3 or image.shape[2] != 3:
             raise ValueError(f"Expected 3-channel BGR image, got shape {image.shape}")
 
+        h, w = image.shape[:2]
+        raw_bytes = image.tobytes()
+
         try:
-            if not skip_detection and cls._face_mesh is not None:
-                image = cls.detect_and_align_face(image)
-
-            blob = cls.preprocess_image(image)
-
-            output = cls._session.run(
-                [cls._output_name],
-                {cls._input_name: blob}
-            )[0]
-
-            embedding = output.flatten()
-
-            norm = np.linalg.norm(embedding)
-            if norm > 0:
-                embedding = embedding / norm
-
-            return embedding.astype(np.float32)
-
+            embedding = cls._engine.extract_embedding_from_raw(
+                list(raw_bytes), w, h
+            )
+            return np.array(embedding, dtype=np.float32)
+        except RuntimeError:
+            raise
         except ValueError:
             raise
         except Exception as e:
-            logger.error(f"ONNX inference error: {e}")
+            logger.error(f"Native inference error: {e}")
             raise RuntimeError(f"Face embedding extraction failed: {e}")
 
     @classmethod
     def extract_embedding_from_bytes(cls, image_bytes: bytes) -> np.ndarray:
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        cls._ensure_initialized()
 
-        if image is None:
-            raise ValueError("Failed to decode image bytes. Invalid format or corrupted data.")
+        if not image_bytes:
+            raise ValueError("Empty image bytes")
 
-        return cls.extract_embedding(image)
+        try:
+            embedding = cls._engine.extract_embedding(list(image_bytes))
+            return np.array(embedding, dtype=np.float32)
+        except RuntimeError as e:
+            if "decode" in str(e).lower():
+                raise ValueError(f"Failed to decode image bytes: {e}")
+            raise
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error(f"Native inference error: {e}")
+            raise RuntimeError(f"Face embedding extraction failed: {e}")
 
     @classmethod
     def health_check(cls) -> bool:
         try:
             cls._ensure_initialized()
-            dummy = np.zeros((112, 112, 3), dtype=np.uint8)
-            _ = cls.extract_embedding(dummy, skip_detection=True)
-            return True
+            return cls._engine.health_check()
         except Exception as e:
-            logger.error(f"OpenCV service health check failed: {e}")
+            logger.error(f"OpenCV 5 engine health check failed: {e}")
             return False

@@ -24,5 +24,8 @@ Thumbs.db
 # Model files (large binary)
 models/*.onnx
 
+# OpenCV 5 native extension build artifacts
+lib/opencv5_native/build/
+
 # Docker
 .dockerignore

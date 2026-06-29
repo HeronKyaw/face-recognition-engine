@@ -21,6 +21,7 @@ services:
       VERIFICATION_THRESHOLD: 0.4
       MODEL_REPO_ID: garavv/arcface-onnx
       MODEL_FILENAME: arc.onnx
+      FACE_DETECT_MODEL_URL: https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2026may.onnx
     ports:
       - "5050:8000"
     extra_hosts:

@@ -24,9 +24,14 @@ class Settings(BaseSettings):
     chroma_collection_name: str = os.getenv("CHROMA_COLLECTION", "face_embeddings")
     chroma_distance_threshold: float = float(os.getenv("CHROMA_DISTANCE_THRESHOLD", "0.4"))
 
-    # OpenCV / Model Configuration
+    # OpenCV 5 / Model Configuration
     model_repo_id: str = os.getenv("MODEL_REPO_ID", "garavv/arcface-onnx")
     model_filename: str = os.getenv("MODEL_FILENAME", "arc.onnx")
+    face_detect_model_url: str = os.getenv(
+        "FACE_DETECT_MODEL_URL",
+        "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2026may.onnx"
+    )
+    face_detect_model_path: Optional[str] = os.getenv("FACE_DETECT_MODEL_PATH")
     input_size: tuple = (112, 112)
     embedding_dim: int = 512
 
