@@ -12,7 +12,28 @@ namespace {
 constexpr float CONFIDENCE_THRESHOLD = 0.5f;
 constexpr int FACE_DETECT_INPUT_SIZE = 320;
 constexpr float SCALE_FACTOR = 1.0f / 128.0f;
-constexpr cv::Scalar MEAN_VAL(127.5, 127.5, 127.5);
+const cv::Scalar MEAN_VAL(127.5, 127.5, 127.5);
+
+cv::Mat computeAffineTransform(const std::vector<cv::Point2f>& src,
+                                const std::vector<cv::Point2f>& dst) {
+    cv::Mat A = (cv::Mat_<float>(3, 3) <<
+        src[0].x, src[0].y, 1.0f,
+        src[1].x, src[1].y, 1.0f,
+        src[2].x, src[2].y, 1.0f);
+    cv::Mat bx = (cv::Mat_<float>(3, 1) << dst[0].x, dst[1].x, dst[2].x);
+    cv::Mat by = (cv::Mat_<float>(3, 1) << dst[0].y, dst[1].y, dst[2].y);
+    cv::Mat ax, ay;
+    cv::solve(A, bx, ax, cv::DECOMP_SVD);
+    cv::solve(A, by, ay, cv::DECOMP_SVD);
+    cv::Mat tform(2, 3, CV_32F);
+    tform.at<float>(0, 0) = ax.at<float>(0);
+    tform.at<float>(0, 1) = ax.at<float>(1);
+    tform.at<float>(0, 2) = ax.at<float>(2);
+    tform.at<float>(1, 0) = ay.at<float>(0);
+    tform.at<float>(1, 1) = ay.at<float>(1);
+    tform.at<float>(1, 2) = ay.at<float>(2);
+    return tform;
+}
 
 }  // anonymous namespace
 
@@ -33,11 +54,6 @@ FaceEngine::FaceEngine(const std::string& faceDetectModel,
     try {
         faceDetector_ = cv::dnn::readNetFromONNX(faceDetectModel);
         recognitionNet_ = cv::dnn::readNetFromONNX(recModel);
-
-        faceDetector_.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
-        faceDetector_.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
-        recognitionNet_.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
-        recognitionNet_.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
     } catch (const cv::Exception& e) {
         throw std::runtime_error("Failed to load ONNX models: " + std::string(e.what()));
     }
@@ -51,11 +67,33 @@ cv::Mat FaceEngine::detectAndAlignFace(const cv::Mat& image, const cv::Size& tar
     faceDetector_.setInput(blob);
     cv::Mat output = faceDetector_.forward();
 
-    if (output.empty() || output.size[2] == 0) {
+    if (output.empty()) {
         throw std::runtime_error("No face detected");
     }
 
-    cv::Mat detections(output.size[2], output.size[3], CV_32F, output.ptr<float>(0, 0));
+    cv::Mat detections;
+    int numDetections = 0;
+    int dataSize = 0;
+
+    if (output.dims == 4) {
+        numDetections = output.size[2];
+        dataSize = output.size[3];
+        detections = cv::Mat(numDetections, dataSize, CV_32F, output.ptr<float>(0, 0));
+    } else if (output.dims == 3) {
+        numDetections = output.size[1];
+        dataSize = output.size[2];
+        detections = cv::Mat(numDetections, dataSize, CV_32F, output.ptr<float>(0, 0));
+    } else if (output.dims == 2) {
+        numDetections = output.rows;
+        dataSize = output.cols;
+        detections = output;
+    } else {
+        throw std::runtime_error("Unexpected detection output shape");
+    }
+
+    if (numDetections == 0) {
+        throw std::runtime_error("No face detected");
+    }
 
     int bestIdx = -1;
     float bestConf = 0.0f;
@@ -73,14 +111,19 @@ cv::Mat FaceEngine::detectAndAlignFace(const cv::Mat& image, const cv::Size& tar
 
     const float* d = detections.ptr<float>(bestIdx);
 
-    std::vector<cv::Point2f> src(5);
-    src[0] = cv::Point2f(d[7], d[8]);    // left eye (YuNet[1])
-    src[1] = cv::Point2f(d[5], d[6]);    // right eye (YuNet[0])
-    src[2] = cv::Point2f(d[9], d[10]);   // nose tip (YuNet[2])
-    src[3] = cv::Point2f(d[13], d[14]);  // left mouth corner (YuNet[4])
-    src[4] = cv::Point2f(d[11], d[12]);  // right mouth corner (YuNet[3])
+    // Use 3 stable landmarks (left eye, right eye, nose tip) for alignment
+    std::vector<cv::Point2f> src = {
+        cv::Point2f(d[7], d[8]),    // left eye (YuNet[1])
+        cv::Point2f(d[5], d[6]),    // right eye (YuNet[0])
+        cv::Point2f(d[9], d[10]),   // nose tip (YuNet[2])
+    };
+    std::vector<cv::Point2f> dst = {
+        CANONICAL_LANDMARKS[0],
+        CANONICAL_LANDMARKS[1],
+        CANONICAL_LANDMARKS[2],
+    };
 
-    cv::Mat tform = cv::estimateAffinePartial2D(src, CANONICAL_LANDMARKS);
+    cv::Mat tform = computeAffineTransform(src, dst);
     if (tform.empty()) {
         throw std::runtime_error("Face alignment failed");
     }
@@ -96,9 +139,18 @@ cv::Mat FaceEngine::preprocessForRecognition(const cv::Mat& face) {
     cv::Mat resized;
     cv::resize(face, resized, cv::Size(inputSize_, inputSize_), 0, 0, cv::INTER_LINEAR);
 
-    cv::Mat blob = cv::dnn::blobFromImage(
-        resized, SCALE_FACTOR, cv::Size(inputSize_, inputSize_),
-        MEAN_VAL, true, false, CV_32F);
+    int sizes[] = {1, inputSize_, inputSize_, 3};
+    cv::Mat blob(4, sizes, CV_32F);
+
+    for (int h = 0; h < inputSize_; ++h) {
+        for (int w = 0; w < inputSize_; ++w) {
+            const cv::Vec3b& pixel = resized.at<cv::Vec3b>(h, w);
+            float* ptr = blob.ptr<float>(0, h, w);
+            ptr[0] = (static_cast<float>(pixel[2]) - MEAN_VAL[0]) * SCALE_FACTOR;
+            ptr[1] = (static_cast<float>(pixel[1]) - MEAN_VAL[1]) * SCALE_FACTOR;
+            ptr[2] = (static_cast<float>(pixel[0]) - MEAN_VAL[2]) * SCALE_FACTOR;
+        }
+    }
 
     return blob;
 }

@@ -40,7 +40,7 @@ RUN cmake -GNinja \
     -DWITH_OPENCL=OFF \
     -DWITH_TBB=ON \
     -DWITH_EIGEN=ON \
-    -DBUILD_PROTOBUF=OFF \
+    -DBUILD_PROTOBUF=ON \
     /opt/opencv && \
     ninja install && \
     rm -rf /opt/opencv/build
@@ -85,6 +85,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libopenblas0 \
     libtbb12 \
     wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install runtime deps for libopencv_imgcodecs (JPEG, PNG, TIFF, WebP)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libjpeg62-turbo \
+    libpng16-16 \
+    libtiff6 \
+    libwebp7 \
+    libwebpmux3 \
+    libwebpdemux2 \
+    libdeflate0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=opencv-builder /opt/opencv/install/lib /usr/local/lib

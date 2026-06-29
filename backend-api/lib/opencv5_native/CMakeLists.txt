@@ -13,7 +13,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(pybind11)
 
-find_package(OpenCV REQUIRED COMPONENTS core imgproc dnn)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs dnn)
 if(OpenCV_VERSION VERSION_LESS "5.0.0")
     message(FATAL_ERROR "OpenCV 5.x required, found ${OpenCV_VERSION}")
 endif()
@@ -34,6 +34,3 @@ target_link_libraries(opencv5_native
         ${OpenCV_LIBS}
 )
 
-set_target_properties(opencv5_native PROPERTIES
-    Python3_INCLUDE_DIRS ${Python3_INCLUDE_DIRS}
-)
