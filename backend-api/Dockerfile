@@ -40,7 +40,7 @@ RUN cmake -GNinja \
     -DWITH_OPENCL=OFF \
     -DWITH_TBB=ON \
     -DWITH_EIGEN=ON \
-    -DPROTOBUF_UPDATE_FILES=ON \
+    -DBUILD_PROTOBUF=OFF \
     /opt/opencv && \
     ninja install && \
     rm -rf /opt/opencv/build
