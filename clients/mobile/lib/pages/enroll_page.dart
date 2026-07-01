@@ -50,7 +50,8 @@ class _EnrollPageState extends State<EnrollPage>
   }
 
   Future<void> _enroll() async {
-    if (_controller == null || !_isInitialized || _isEnrolling || _isResetting) return;
+    if (_controller == null || !_isInitialized || _isEnrolling || _isResetting)
+      return;
 
     // If user already has a face enrolled, reset it first
     if (widget.user.faceEnrolled) {
@@ -64,21 +65,28 @@ class _EnrollPageState extends State<EnrollPage>
       }
       setState(() => _isResetting = false);
     }
-    setState(() { _isEnrolling = true; _resultMessage = null; });
+    setState(() {
+      _isEnrolling = true;
+      _resultMessage = null;
+    });
     try {
       final image = await _controller!.takePicture();
       final result = await _api.enroll(widget.user.userId, image);
-      if (mounted) { setState(() {
-        _success = result['success'] as bool;
-        _resultMessage = result['message'] as String;
-        _isEnrolling = false;
-      }); }
+      if (mounted) {
+        setState(() {
+          _success = result['success'] as bool;
+          _resultMessage = result['message'] as String;
+          _isEnrolling = false;
+        });
+      }
     } catch (e) {
-      if (mounted) { setState(() {
-        _success = false;
-        _resultMessage = '$e';
-        _isEnrolling = false;
-      }); }
+      if (mounted) {
+        setState(() {
+          _success = false;
+          _resultMessage = '$e';
+          _isEnrolling = false;
+        });
+      }
     }
   }
 
@@ -121,12 +129,24 @@ class _EnrollPageState extends State<EnrollPage>
               CircleAvatar(
                 radius: 10,
                 backgroundColor: colorScheme.primaryContainer,
-                child: Text(widget.user.name[0].toUpperCase(),
-                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: colorScheme.onPrimaryContainer)),
+                child: Text(
+                  widget.user.name[0].toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.onPrimaryContainer,
+                  ),
+                ),
               ),
               const SizedBox(width: 8),
-              Text(widget.user.name,
-                style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
+              Text(
+                widget.user.name,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ],
           ),
         ),
@@ -135,8 +155,13 @@ class _EnrollPageState extends State<EnrollPage>
       body: Stack(
         children: [
           _isInitialized
-            ? CameraPreview(_controller!)
-            : Container(color: Colors.black, child: const Center(child: CircularProgressIndicator(color: Colors.white))),
+              ? CameraPreview(_controller!)
+              : Container(
+                  color: Colors.black,
+                  child: const Center(
+                    child: CircularProgressIndicator(color: Colors.white),
+                  ),
+                ),
 
           // Face guide overlay
           Center(
@@ -145,7 +170,10 @@ class _EnrollPageState extends State<EnrollPage>
               height: 320,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(130),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.5), width: 2),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.5),
+                  width: 2,
+                ),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.15),
@@ -169,19 +197,27 @@ class _EnrollPageState extends State<EnrollPage>
                 color: Colors.white.withValues(alpha: 0.9),
                 fontSize: 16,
                 fontWeight: FontWeight.w500,
-                shadows: [Shadow(color: Colors.black.withValues(alpha: 0.4), blurRadius: 8)],
+                shadows: [
+                  Shadow(
+                    color: Colors.black.withValues(alpha: 0.4),
+                    blurRadius: 8,
+                  ),
+                ],
               ),
             ),
           ),
 
           // Already enrolled banner
-          if (widget.user.faceEnrolled && _resultMessage == null) {
-            return Positioned(
+          if (widget.user.faceEnrolled && _resultMessage == null) ...[
+            Positioned(
               top: MediaQuery.of(context).padding.top + 80,
               left: 20,
               right: 20,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.amber.shade600,
                   borderRadius: BorderRadius.circular(16),
@@ -198,14 +234,19 @@ class _EnrollPageState extends State<EnrollPage>
                     Icon(Icons.info_rounded, color: Colors.white, size: 22),
                     SizedBox(width: 10),
                     Expanded(
-                      child: Text("Face already enrolled. Tap capture to reset & re-enroll.",
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                      child: Text(
+                        "Face already enrolled. Tap capture to reset & re-enroll.",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
-            );
-          }
+            ),
+          ],
 
           // Result banner
           if (_resultMessage != null)
@@ -217,13 +258,19 @@ class _EnrollPageState extends State<EnrollPage>
                 duration: const Duration(milliseconds: 300),
                 offset: const Offset(0, 0),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
-                    color: _success == true ? Colors.green.shade600 : Colors.red.shade600,
+                    color: _success == true
+                        ? Colors.green.shade600
+                        : Colors.red.shade600,
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(
-                        color: (_success == true ? Colors.green : Colors.red).withValues(alpha: 0.3),
+                        color: (_success == true ? Colors.green : Colors.red)
+                            .withValues(alpha: 0.3),
                         blurRadius: 20,
                         offset: const Offset(0, 4),
                       ),
@@ -232,14 +279,21 @@ class _EnrollPageState extends State<EnrollPage>
                   child: Row(
                     children: [
                       Icon(
-                        _success == true ? Icons.check_circle_rounded : Icons.error_rounded,
+                        _success == true
+                            ? Icons.check_circle_rounded
+                            : Icons.error_rounded,
                         color: Colors.white,
                         size: 22,
                       ),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: Text(_resultMessage!,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                        child: Text(
+                          _resultMessage!,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -260,9 +314,15 @@ class _EnrollPageState extends State<EnrollPage>
                     padding: const EdgeInsets.only(bottom: 12),
                     child: TextButton.icon(
                       onPressed: () => setState(() => _resultMessage = null),
-                      icon: const Icon(Icons.refresh, color: Colors.white, size: 18),
-                      label: const Text('Capture Again',
-                        style: TextStyle(color: Colors.white)),
+                      icon: const Icon(
+                        Icons.refresh,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                      label: const Text(
+                        'Capture Again',
+                        style: TextStyle(color: Colors.white),
+                      ),
                     ),
                   ),
                 AnimatedBuilder(
@@ -278,7 +338,9 @@ class _EnrollPageState extends State<EnrollPage>
                       height: 72,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: _isEnrolling ? Colors.grey.shade400 : Colors.white,
+                        color: _isEnrolling
+                            ? Colors.grey.shade400
+                            : Colors.white,
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withValues(alpha: 0.25),
@@ -288,19 +350,37 @@ class _EnrollPageState extends State<EnrollPage>
                         ],
                       ),
                       child: _isEnrolling
-                        ? const CircularProgressIndicator(strokeWidth: 3, color: Colors.white)
-                        : const Icon(Icons.camera_alt_rounded, color: Colors.black87, size: 30),
+                          ? const CircularProgressIndicator(
+                              strokeWidth: 3,
+                              color: Colors.white,
+                            )
+                          : const Icon(
+                              Icons.camera_alt_rounded,
+                              color: Colors.black87,
+                              size: 30,
+                            ),
                     ),
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _isResetting ? 'Resetting...' : _isEnrolling ? 'Enrolling...' : widget.user.faceEnrolled ? 'Tap to reset & enroll' : 'Tap to capture',
+                  _isResetting
+                      ? 'Resetting...'
+                      : _isEnrolling
+                      ? 'Enrolling...'
+                      : widget.user.faceEnrolled
+                      ? 'Tap to reset & enroll'
+                      : 'Tap to capture',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.8),
                     fontSize: 13,
                     fontWeight: FontWeight.w500,
-                    shadows: [Shadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 4)],
+                    shadows: [
+                      Shadow(
+                        color: Colors.black.withValues(alpha: 0.3),
+                        blurRadius: 4,
+                      ),
+                    ],
                   ),
                 ),
               ],

@@ -101,7 +101,7 @@ class ChromaService:
         if cls._client is None or cls._collection is None:
             raise RuntimeError("ChromaDB not initialized. Call initialize() first.")
         try:
-            cls._client.get_collection(name=settings.chroma_collection_name)
+            cls._collection = cls._client.get_collection(name=settings.chroma_collection_name)
         except Exception:
             logger.warning("ChromaDB collection missing on server, recreating...")
             cls._collection = cls._client.get_or_create_collection(

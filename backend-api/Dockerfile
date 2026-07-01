@@ -112,7 +112,7 @@ COPY app/ ./app/
 
 ENV HF_HOME=/app/.cache/huggingface
 RUN mkdir -p $HF_HOME && \
-    python -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='garavv/arcface-onnx', filename='arc.onnx')" && \
+    python -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='facefusion/models-3.0.0', filename='arcface_w600k_r50.onnx')" && \
     mkdir -p /app/models && \
     wget -q -O /app/models/face_detection_yunet_2026may.onnx \
         https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2026may.onnx

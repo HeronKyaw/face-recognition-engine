@@ -7,3 +7,4 @@ chromadb==1.5.9
 mysql-connector-python==9.0.0
 numpy==1.26.4
 huggingface_hub==0.27.1
+onnxruntime==1.27.0

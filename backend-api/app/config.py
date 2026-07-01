@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     chroma_distance_threshold: float = float(os.getenv("CHROMA_DISTANCE_THRESHOLD", "0.4"))
 
     # OpenCV 5 / Model Configuration
-    model_repo_id: str = os.getenv("MODEL_REPO_ID", "garavv/arcface-onnx")
-    model_filename: str = os.getenv("MODEL_FILENAME", "arc.onnx")
+    model_repo_id: str = os.getenv("MODEL_REPO_ID", "facefusion/models-3.0.0")
+    model_filename: str = os.getenv("MODEL_FILENAME", "arcface_w600k_r50.onnx")
     face_detect_model_url: str = os.getenv(
         "FACE_DETECT_MODEL_URL",
         "https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2026may.onnx"
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     api_workers: int = int(os.getenv("API_WORKERS", "4"))
 
     # Distance threshold for face verification (cosine distance)
-    verification_threshold: float = float(os.getenv("VERIFICATION_THRESHOLD", "0.4"))
+    verification_threshold: float = float(os.getenv("VERIFICATION_THRESHOLD", "0.15"))
 
     class Config:
         env_file = ".env"

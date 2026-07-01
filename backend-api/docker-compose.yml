@@ -18,9 +18,9 @@ services:
       CHROMA_HOST: host.docker.internal
       CHROMA_PORT: 8000
       CHROMA_COLLECTION: face_embeddings
-      VERIFICATION_THRESHOLD: 0.4
-      MODEL_REPO_ID: garavv/arcface-onnx
-      MODEL_FILENAME: arc.onnx
+      VERIFICATION_THRESHOLD: 0.15
+      MODEL_REPO_ID: facefusion/models-3.0.0
+      MODEL_FILENAME: arcface_w600k_r50.onnx
       FACE_DETECT_MODEL_URL: https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2026may.onnx
     ports:
       - "5050:8000"
