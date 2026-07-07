@@ -28,11 +28,22 @@ export interface UserDeleteResponse {
   chroma_deleted: boolean;
 }
 
+export interface LivenessResult {
+  passed: boolean;
+  passive_score: number;
+  blur_score: number;
+  color_score: number;
+  blink_detected: boolean;
+  frame_diversity_ok: boolean;
+  message: string;
+}
+
 export interface EnrollResponse {
   success: boolean;
   user_id: string;
   message: string;
   embedding_stored: boolean;
+  liveness?: LivenessResult;
 }
 
 export interface VerifyResponse {
@@ -42,6 +53,7 @@ export interface VerifyResponse {
   metadata?: string;
   distance?: number;
   message: string;
+  liveness?: LivenessResult;
 }
 
 export interface VerificationLog {
@@ -57,6 +69,20 @@ export interface VerificationLogsResponse {
   total: number;
   page: number;
   page_size: number;
+}
+
+export interface ResetEnrollmentsResponse {
+  success: boolean;
+  embeddings_removed: number;
+  users_reset: number;
+  message: string;
+}
+
+export interface ResetFaceResponse {
+  success: boolean;
+  user_id: string;
+  message: string;
+  embedding_removed: boolean;
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -91,16 +117,22 @@ export const api = {
   deleteUser: (userId: string) =>
     request<UserDeleteResponse>(`/api/v1/users/${userId}`, { method: "DELETE" }),
 
-  enroll: async (userId: string, file: File) => {
+  enroll: async (userId: string, file: File, livenessFrames: File[] = []) => {
     const form = new FormData();
     form.append("user_id", userId);
     form.append("face_image", file);
+    for (const f of livenessFrames) {
+      form.append("liveness_frames", f);
+    }
     return request<EnrollResponse>("/api/v1/enroll", { method: "POST", body: form });
   },
 
-  verify: async (file: File, deviceId?: string) => {
+  verify: async (file: File, livenessFrames: File[] = [], deviceId?: string) => {
     const form = new FormData();
     form.append("face_image", file);
+    for (const f of livenessFrames) {
+      form.append("liveness_frames", f);
+    }
     if (deviceId) form.append("device_id", deviceId);
     return request<VerifyResponse>("/api/v1/verify", { method: "POST", body: form });
   },
@@ -112,4 +144,10 @@ export const api = {
     q.set("page_size", String(params?.page_size ?? 20));
     return request<VerificationLogsResponse>(`/api/v1/verification-logs?${q}`);
   },
+
+  resetEnrollments: () =>
+    request<ResetEnrollmentsResponse>("/api/v1/reset-enrollments", { method: "POST" }),
+
+  resetFace: (userId: string) =>
+    request<ResetFaceResponse>(`/api/v1/users/${userId}/face`, { method: "DELETE" }),
 };

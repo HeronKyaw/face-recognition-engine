@@ -40,9 +40,8 @@ The API starts at `http://localhost:8000`. Swagger docs at `/docs`.
 | `CHROMA_HOST` | `host.docker.internal` | ChromaDB server host |
 | `CHROMA_PORT` | `8000` | ChromaDB server port |
 | `CHROMA_COLLECTION` | `face_embeddings` | ChromaDB collection name |
-| `VERIFICATION_THRESHOLD` | `0.4` | Cosine distance threshold |
-| `MODEL_REPO_ID` | `garavv/arcface-onnx` | HuggingFace model repo ID |
-| `MODEL_FILENAME` | `arc.onnx` | Model filename within the repo |
+| `VERIFICATION_THRESHOLD` | `0.3` | Cosine distance threshold (SFace) |
+| `MODEL_PATH` | `models/sface.onnx` | Path to SFace ONNX model |
 
 ## API Endpoints
 

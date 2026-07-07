@@ -3,18 +3,20 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { api, EnrollResponse, UserResponse } from "@/lib/api";
 
+const LIVENESS_FRAME_COUNT = 10;
+const LIVENESS_FRAME_INTERVAL = 200;
+
 export default function EnrollPage() {
   const [users, setUsers] = useState<UserResponse[]>([]);
   const [userId, setUserId] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
   const [result, setResult] = useState<EnrollResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [capturingFrames, setCapturingFrames] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const loadingRef = useRef(false);
 
   useEffect(() => {
     api.listUsers(1, 100).then((r) => {
@@ -52,48 +54,85 @@ export default function EnrollPage() {
     }
   };
 
-  const captureFromCamera = () => {
-    const video = videoRef.current;
-    if (!video) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0);
-    canvas.toBlob((blob) => {
-      if (!blob) return;
-      const f = new File([blob], "capture.jpg", { type: "image/jpeg" });
-      setFile(f);
-      setPreview(URL.createObjectURL(f));
-      setResult(null);
-      setError("");
-      stopCamera();
-    }, "image/jpeg");
+  const captureBurst = (): Promise<{ faceImage: File; livenessFrames: File[] }> => {
+    return new Promise((resolve, reject) => {
+      const video = videoRef.current;
+      if (!video) {
+        reject(new Error("Camera not available"));
+        return;
+      }
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      if (!w || !h) {
+        reject(new Error("Camera not ready"));
+        return;
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("Canvas not available"));
+        return;
+      }
+
+      const frames: File[] = [];
+      let captured = 0;
+      const total = 1 + LIVENESS_FRAME_COUNT;
+
+      const capture = () => {
+        ctx.drawImage(video, 0, 0);
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            reject(new Error("Failed to capture frame"));
+            return;
+          }
+          const label = captured === 0 ? "face" : `frame_${captured}`;
+          frames.push(new File([blob], `${label}.jpg`, { type: "image/jpeg" }));
+          captured++;
+
+          if (captured === 1) {
+            setCapturingFrames(0);
+          } else {
+            setCapturingFrames(captured - 1);
+          }
+
+          if (captured >= total) {
+            const faceImage = frames[0];
+            const livenessFrames = frames.slice(1);
+            resolve({ faceImage, livenessFrames });
+          } else {
+            setTimeout(capture, captured === 1 ? 0 : LIVENESS_FRAME_INTERVAL);
+          }
+        }, "image/jpeg", 85);
+      };
+
+      capture();
+    });
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setFile(f);
-    setPreview(URL.createObjectURL(f));
+  const handleEnroll = async () => {
+    if (loadingRef.current || !userId) return;
+    loadingRef.current = true;
+    setError("");
     setResult(null);
-    setError("");
-    stopCamera();
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!file || !userId) return;
-    setError("");
     setLoading(true);
+
     try {
-      const res = await api.enroll(userId, file);
+      if (!cameraActive) {
+        setError("Camera is required for liveness check.");
+        return;
+      }
+      const { faceImage, livenessFrames } = await captureBurst();
+      const res = await api.enroll(userId, faceImage, livenessFrames);
       setResult(res);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
+      setCapturingFrames(0);
+      loadingRef.current = false;
     }
   };
 
@@ -129,17 +168,34 @@ export default function EnrollPage() {
       )}
 
       {result && (
-        <div className={`px-4 py-3 rounded-lg text-sm border flex items-start gap-2 ${
+        <div className={`px-4 py-3 rounded-lg text-sm border ${
           result.success
             ? "bg-emerald-50 border-emerald-200 text-emerald-700"
             : "bg-amber-50 border-amber-200 text-amber-700"
         }`}>
-          <span className="mt-0.5">{result.success ? "✓" : "!"}</span>
-          <span>{result.message}</span>
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5">{result.success ? "✓" : "!"}</span>
+            <div className="flex-1">
+              <p className="font-medium">{result.message}</p>
+              {result.liveness && (
+                <div className="mt-2 space-y-1 text-xs border-t border-emerald-200/50 pt-2">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${result.liveness.passed ? "bg-emerald-500" : "bg-red-500"}`} />
+                    Liveness: {result.liveness.passed ? "Passed" : "Failed"}
+                  </div>
+                  <div className="text-slate-500">
+                    Blur: {(result.liveness.blur_score * 100).toFixed(0)}% |
+                    Color: {(result.liveness.color_score * 100).toFixed(0)}% |
+                    Blink: {result.liveness.blink_detected ? "Yes" : "No"}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">User</label>
           <select
@@ -156,60 +212,56 @@ export default function EnrollPage() {
           </select>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">Face Image</label>
-
-          <div className="flex gap-2 mb-3">
+        {!cameraActive && !error && (
+          <div className="text-center py-4">
             <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              onClick={startCamera}
+              className="px-6 py-3 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm transition-colors"
             >
-              Choose Photo
-            </button>
-            <button
-              type="button"
-              onClick={cameraActive ? stopCamera : startCamera}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-            >
-              {cameraActive ? "Stop Camera" : "Capture Photo"}
+              Start Camera
             </button>
           </div>
+        )}
 
-          <input ref={fileRef} type="file" accept="image/jpeg,image/png" onChange={handleFileChange} className="hidden" />
-
-          {cameraActive && (
-            <div className="space-y-2">
+        {cameraActive && (
+          <div>
+            <div className="relative">
               <video ref={videoRef} autoPlay playsInline className="w-full rounded-lg border border-slate-200" />
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-56 h-64 rounded-[50%] border-2 border-white/40 shadow-[0_0_40px_rgba(0,0,0,0.15)]" />
+              </div>
+            </div>
+
+            {capturingFrames > 0 && (
+              <div className="mt-3 flex items-center gap-2 text-sm text-indigo-600 font-medium">
+                <div className="w-32 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-indigo-500 rounded-full transition-all duration-200"
+                    style={{ width: `${(capturingFrames / LIVENESS_FRAME_COUNT) * 100}%` }}
+                  />
+                </div>
+                Capturing {capturingFrames}/{LIVENESS_FRAME_COUNT}
+              </div>
+            )}
+
+            {!loading && capturingFrames === 0 && (
+              <p className="mt-3 text-center text-sm text-slate-500">
+                Look at the camera and blink naturally
+              </p>
+            )}
+
+            {!loading && capturingFrames === 0 && (
               <button
-                type="button"
-                onClick={captureFromCamera}
-                className="w-full bg-emerald-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors"
+                onClick={handleEnroll}
+                disabled={!userId}
+                className="mt-3 w-full bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 shadow-sm transition-colors"
               >
-                Snap Photo
+                Enroll Face
               </button>
-            </div>
-          )}
-
-          {error && error.includes("Camera") && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm mt-2">{error}</div>
-          )}
-
-          {preview && (
-            <div className="mt-3">
-              <div className="text-xs text-slate-400 mb-1.5">Preview</div>
-              <img src={preview} alt="preview" className="max-h-48 rounded-lg border border-slate-200" />
-            </div>
-          )}
-        </div>
-
-        <button
-          disabled={loading || !file || !userId}
-          className="w-full bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 shadow-sm transition-colors"
-        >
-          {loading ? "Enrolling..." : "Enroll Face"}
-        </button>
-      </form>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

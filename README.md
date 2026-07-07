@@ -172,8 +172,8 @@ This is 1:N identification — the system searches all enrolled faces and return
 |-----------|-----------|
 | Backend | Python 3.11, FastAPI, Uvicorn |
 | Face Detection | MediaPipe |
-| Face Embedding | ArcFace MobileFaceNet (ONNX) |
-| Vector DB | ChromaDB (cosine distance, threshold 0.4) |
+| Face Embedding | SFace (OpenCV Zoo, ONNX) |
+| Vector DB | ChromaDB (cosine distance, threshold 0.5) |
 | Relational DB | MySQL 8.0+ |
 | Web Client | Next.js 16, React 19, Tailwind CSS v4 |
 | Mobile Client | Flutter 3.12+, Material Design 3 |

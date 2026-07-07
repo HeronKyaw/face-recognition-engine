@@ -123,3 +123,39 @@ class UserDeleteResponse(BaseModel):
             }
         }
     )
+
+
+class ResetEnrollmentsResponse(BaseModel):
+    success: bool
+    embeddings_removed: int
+    users_reset: int
+    message: str
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": True,
+                "embeddings_removed": 15,
+                "users_reset": 20,
+                "message": "All face enrollments have been reset",
+            }
+        }
+    )
+
+
+class ResetFaceResponse(BaseModel):
+    success: bool
+    user_id: str
+    message: str
+    embedding_removed: bool = False
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": True,
+                "user_id": "user_12345",
+                "message": "Face enrollment reset for user user_12345",
+                "embedding_removed": True,
+            }
+        }
+    )

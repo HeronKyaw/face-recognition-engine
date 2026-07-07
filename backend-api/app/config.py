@@ -22,13 +22,12 @@ class Settings(BaseSettings):
     chroma_host: str = os.getenv("CHROMA_HOST", "chromadb")
     chroma_port: int = int(os.getenv("CHROMA_PORT", "8000"))
     chroma_collection_name: str = os.getenv("CHROMA_COLLECTION", "face_embeddings")
-    chroma_distance_threshold: float = float(os.getenv("CHROMA_DISTANCE_THRESHOLD", "0.4"))
+    chroma_distance_threshold: float = float(os.getenv("CHROMA_DISTANCE_THRESHOLD", "0.5"))
 
-    # OpenCV / Model Configuration
-    model_repo_id: str = os.getenv("MODEL_REPO_ID", "garavv/arcface-onnx")
-    model_filename: str = os.getenv("MODEL_FILENAME", "arc.onnx")
+    # Model Configuration (SFace: OpenCV Zoo face_recognition_sface)
+    model_path: str = os.getenv("MODEL_PATH", "models/sface.onnx")
     input_size: tuple = (112, 112)
-    embedding_dim: int = 512
+    embedding_dim: int = 128
 
     # API Configuration
     api_host: str = os.getenv("API_HOST", "0.0.0.0")
@@ -36,7 +35,21 @@ class Settings(BaseSettings):
     api_workers: int = int(os.getenv("API_WORKERS", "4"))
 
     # Distance threshold for face verification (cosine distance)
-    verification_threshold: float = float(os.getenv("VERIFICATION_THRESHOLD", "0.4"))
+    # SFace default: 0.363 cosine similarity → 0.637 distance
+    # Conservative for KYC: 0.3 distance (tighter security given observed genuine distance ~0.006)
+    verification_threshold: float = float(os.getenv("VERIFICATION_THRESHOLD", "0.3"))
+
+    # Liveness Detection Configuration
+    # Passive liveness: texture/blur/color analysis on single image (0-1, higher = more likely live)
+    liveness_passive_threshold: float = float(os.getenv("LIVENESS_PASSIVE_THRESHOLD", "0.3"))
+    # Active liveness (blink detection): EAR threshold for considering eye closed
+    blink_ear_threshold: float = float(os.getenv("BLINK_EAR_THRESHOLD", "0.2"))
+    # Minimum number of blinks required in the frame sequence
+    min_blinks_required: int = int(os.getenv("MIN_BLINKS_REQUIRED", "1"))
+    # Minimum number of liveness frames required
+    liveness_min_frames: int = int(os.getenv("LIVENESS_MIN_FRAMES", "5"))
+    # Minimum average pixel difference between consecutive frames to detect static images
+    liveness_frame_diversity_threshold: float = float(os.getenv("LIVENESS_FRAME_DIVERSITY_THRESHOLD", "15.0"))
 
     class Config:
         env_file = ".env"

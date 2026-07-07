@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.dependencies import get_chroma_service, get_mysql_service
 from app.schemas.user import (
+    ResetEnrollmentsResponse,
+    ResetFaceResponse,
     UserCreate,
     UserDeleteResponse,
     UserListResponse,
@@ -141,6 +143,51 @@ async def delete_user(
     )
 
 
+@router.delete(
+    "/users/{user_id}/face",
+    response_model=ResetFaceResponse,
+    summary="Reset face enrollment for a user",
+    description="""
+    Remove the face embedding and reset enrollment status for a specific user.
+
+    **Effects:**
+    1. Deletes the user's face embedding from ChromaDB
+    2. Sets `face_enrolled = FALSE` in MySQL
+
+    The user record itself is NOT deleted.
+    """,
+)
+async def reset_user_face(
+    user_id: str,
+    mysql: MySQLService = Depends(get_mysql_service),
+    chroma: ChromaService = Depends(get_chroma_service),
+):
+    user = mysql.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User '{user_id}' not found")
+
+    embedding_removed = False
+    try:
+        embedding_removed = chroma.delete_embedding(user_id)
+    except Exception as e:
+        logger.error(f"Failed to delete embedding for user {user_id}: {e}")
+
+    mysql.set_face_enrolled(user_id, enrolled=False)
+
+    if embedding_removed:
+        message = f"Face enrollment reset for user {user_id}"
+    else:
+        message = f"No face embedding found for user {user_id}, enrollment status reset"
+
+    logger.info(f"Face enrollment reset: user={user_id}, embedding_removed={embedding_removed}")
+    return ResetFaceResponse(
+        success=True,
+        user_id=user_id,
+        message=message,
+        embedding_removed=embedding_removed,
+    )
+
+
 # ==================== Verification Logs ====================
 
 @router.get(
@@ -163,3 +210,40 @@ async def get_verification_logs(
         "page": page,
         "page_size": page_size,
     }
+
+
+@router.post(
+    "/reset-enrollments",
+    response_model=ResetEnrollmentsResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Reset all face enrollments",
+    description="""
+    Clear all face embeddings from ChromaDB and set face_enrolled = FALSE for all users.
+
+    **Use case:** Re-enrollment campaign, system migration, or testing.
+
+    **Effects:**
+    1. Deletes all face embeddings from the vector index (ChromaDB collection recreated)
+    2. Sets `face_enrolled = FALSE` for every user in MySQL
+
+    User records themselves are NOT deleted.
+    """,
+)
+async def reset_enrollments(
+    mysql: MySQLService = Depends(get_mysql_service),
+    chroma: ChromaService = Depends(get_chroma_service),
+):
+    embeddings_removed = chroma.reset_all_embeddings()
+    users_reset = mysql.reset_all_face_enrolled()
+
+    logger.warning(
+        f"All enrollments reset: {embeddings_removed} embeddings removed, "
+        f"{users_reset} users face_enrolled reset"
+    )
+
+    return ResetEnrollmentsResponse(
+        success=True,
+        embeddings_removed=embeddings_removed,
+        users_reset=users_reset,
+        message="All face enrollments have been reset",
+    )

@@ -151,6 +151,25 @@ export default function UserDetailPage() {
           <button onClick={handleUpdate} className="flex-1 bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 shadow-sm transition-colors">
             Save Changes
           </button>
+          {user.face_enrolled && (
+            <button
+              onClick={async () => {
+                if (!confirm(`Reset face enrollment for "${user.name}"?`)) return;
+                setError("");
+                setMessage("");
+                try {
+                  const result = await api.resetFace(user.user_id);
+                  setMessage(result.message);
+                  load();
+                } catch (err: unknown) {
+                  setError(err instanceof Error ? err.message : "Failed to reset face");
+                }
+              }}
+              className="px-5 py-2.5 rounded-lg text-sm font-medium border border-amber-200 text-amber-700 hover:bg-amber-50 transition-colors"
+            >
+              Reset Face
+            </button>
+          )}
           <button onClick={handleDelete} className="px-5 py-2.5 rounded-lg text-sm font-medium border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
             Delete
           </button>

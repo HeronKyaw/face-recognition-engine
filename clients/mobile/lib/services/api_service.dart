@@ -39,19 +39,33 @@ class ApiService {
     return User.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
-  Future<Map<String, dynamic>> enroll(String userId, XFile image) async {
+  Future<Map<String, dynamic>> enroll(
+    String userId,
+    XFile image, {
+    List<XFile> livenessFrames = const [],
+  }) async {
     final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/api/v1/enroll'));
     request.fields['user_id'] = userId;
     request.files.add(await http.MultipartFile.fromPath('face_image', image.path));
+    for (final f in livenessFrames) {
+      request.files.add(await http.MultipartFile.fromPath('liveness_frames', f.path));
+    }
     final streamed = await request.send();
     final response = await http.Response.fromStream(streamed);
     _checkResponse(response);
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
-  Future<Map<String, dynamic>> verify(XFile image, {String? deviceId}) async {
+  Future<Map<String, dynamic>> verify(
+    XFile image, {
+    List<XFile> livenessFrames = const [],
+    String? deviceId,
+  }) async {
     final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/api/v1/verify'));
     request.files.add(await http.MultipartFile.fromPath('face_image', image.path));
+    for (final f in livenessFrames) {
+      request.files.add(await http.MultipartFile.fromPath('liveness_frames', f.path));
+    }
     if (deviceId != null) request.fields['device_id'] = deviceId;
     final streamed = await request.send();
     final response = await http.Response.fromStream(streamed);

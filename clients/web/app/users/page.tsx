@@ -10,6 +10,8 @@ export default function UsersPage() {
   const [pageSize] = useState(20);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [resetting, setResetting] = useState(false);
+  const [resetMessage, setResetMessage] = useState("");
 
   const load = () => {
     setLoading(true);
@@ -22,6 +24,24 @@ export default function UsersPage() {
 
   useEffect(() => { load(); }, [page]);
 
+  const handleReset = async () => {
+    if (!window.confirm("Are you sure you want to reset all face enrollments? This will clear all face embeddings and set all users to 'Not Enrolled'. User records will NOT be deleted.")) {
+      return;
+    }
+    setResetting(true);
+    setResetMessage("");
+    setError("");
+    try {
+      const result = await api.resetEnrollments();
+      setResetMessage(`Reset complete: ${result.embeddings_removed} embeddings removed, ${result.users_reset} users reset.`);
+      load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Reset failed");
+    } finally {
+      setResetting(false);
+    }
+  };
+
   const totalPages = Math.ceil(total / pageSize);
 
   return (
@@ -31,13 +51,28 @@ export default function UsersPage() {
           <h1 className="text-xl font-semibold text-slate-900">Users</h1>
           <p className="text-sm text-slate-500 mt-0.5">{total} total registered</p>
         </div>
-        <a
-          href="/users/create"
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm transition-colors"
-        >
-          + New User
-        </a>
+        <div className="flex gap-2">
+          <button
+            onClick={handleReset}
+            disabled={resetting}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-red-300 text-red-700 text-sm font-medium hover:bg-red-50 disabled:opacity-50 transition-colors"
+          >
+            {resetting ? "Resetting..." : "Reset Enrollments"}
+          </button>
+          <a
+            href="/users/create"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm transition-colors"
+          >
+            + New User
+          </a>
+        </div>
       </div>
+
+      {resetMessage && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-lg text-sm">
+          {resetMessage}
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm flex items-center gap-2">
@@ -100,9 +135,27 @@ export default function UsersPage() {
                     </td>
                     <td className="px-5 py-3.5 text-slate-500 text-xs">{new Date(u.created_at).toLocaleDateString()}</td>
                     <td className="px-5 py-3.5 text-right">
-                      <a href={`/users/${u.user_id}`} className="text-indigo-600 hover:text-indigo-800 text-xs font-medium hover:underline">
-                        View →
-                      </a>
+                      <div className="flex items-center justify-end gap-2">
+                        {u.face_enrolled && (
+                          <button
+                            onClick={async () => {
+                              if (!confirm(`Reset face enrollment for "${u.name}"?`)) return;
+                              try {
+                                await api.resetFace(u.user_id);
+                                load();
+                              } catch (e: unknown) {
+                                setError(e instanceof Error ? e.message : "Failed to reset face");
+                              }
+                            }}
+                            className="text-amber-600 hover:text-amber-800 text-xs font-medium hover:underline"
+                          >
+                            Reset Face
+                          </button>
+                        )}
+                        <a href={`/users/${u.user_id}`} className="text-indigo-600 hover:text-indigo-800 text-xs font-medium hover:underline">
+                          View →
+                        </a>
+                      </div>
                     </td>
                   </tr>
                 ))}

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
 from datetime import datetime
 
@@ -14,11 +14,23 @@ class EnrollRequest(BaseModel):
         }
 
 
+class LivenessResult(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    passed: bool
+    passive_score: float = Field(ge=0.0, le=1.0)
+    blur_score: float = Field(ge=0.0, le=1.0)
+    color_score: float = Field(ge=0.0, le=1.0)
+    blink_detected: bool
+    frame_diversity_ok: bool
+    message: str = ""
+
+
 class EnrollResponse(BaseModel):
     success: bool
     user_id: str
     message: str
     embedding_stored: bool = False
+    liveness: Optional[LivenessResult] = None
     
     class Config:
         json_schema_extra = {
@@ -26,7 +38,16 @@ class EnrollResponse(BaseModel):
                 "success": True,
                 "user_id": "user_12345",
                 "message": "Face enrolled successfully",
-                "embedding_stored": True
+                "embedding_stored": True,
+                "liveness": {
+                    "passed": True,
+                    "passive_score": 0.75,
+                    "blur_score": 0.82,
+                    "color_score": 0.68,
+                    "blink_detected": True,
+                    "frame_diversity_ok": True,
+                    "message": ""
+                }
             }
         }
 
@@ -42,6 +63,7 @@ class VerifyResponse(BaseModel):
     metadata: Optional[str] = None
     distance: Optional[float] = None
     message: str
+    liveness: Optional[LivenessResult] = None
     
     class Config:
         json_schema_extra = {
@@ -51,7 +73,16 @@ class VerifyResponse(BaseModel):
                 "name": "John Doe",
                 "metadata": "{\"department\": \"engineering\"}",
                 "distance": 0.23,
-                "message": "Identity verified successfully"
+                "message": "Identity verified successfully",
+                "liveness": {
+                    "passed": True,
+                    "passive_score": 0.75,
+                    "blur_score": 0.82,
+                    "color_score": 0.68,
+                    "blink_detected": True,
+                    "frame_diversity_ok": True,
+                    "message": ""
+                }
             }
         }
 

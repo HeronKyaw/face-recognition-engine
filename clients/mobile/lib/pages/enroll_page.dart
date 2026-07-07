@@ -3,6 +3,9 @@ import 'package:camera/camera.dart';
 import '../models/user.dart';
 import '../services/api_service.dart';
 
+const _livenessFrameCount = 10;
+const _livenessFrameDelay = Duration(milliseconds: 200);
+
 class EnrollPage extends StatefulWidget {
   final User user;
 
@@ -20,8 +23,11 @@ class _EnrollPageState extends State<EnrollPage>
   late Animation<double> _pulseAnimation;
   bool _isInitialized = false;
   bool _isEnrolling = false;
+  bool _isCapturing = false;
+  int _captureProgress = 0;
   String? _resultMessage;
   bool? _success;
+  Map<String, dynamic>? _liveness;
 
   @override
   void initState() {
@@ -50,13 +56,32 @@ class _EnrollPageState extends State<EnrollPage>
 
   Future<void> _enroll() async {
     if (_controller == null || !_isInitialized || _isEnrolling) return;
-    setState(() { _isEnrolling = true; _resultMessage = null; });
+    setState(() { _isEnrolling = true; _resultMessage = null; _liveness = null; });
+
     try {
-      final image = await _controller!.takePicture();
-      final result = await _api.enroll(widget.user.userId, image);
+      final faceImage = await _controller!.takePicture();
+
+      final livenessFrames = <XFile>[];
+      setState(() { _isCapturing = true; _captureProgress = 0; });
+
+      for (int i = 0; i < _livenessFrameCount; i++) {
+        await Future.delayed(_livenessFrameDelay);
+        final frame = await _controller!.takePicture();
+        livenessFrames.add(frame);
+        if (mounted) setState(() { _captureProgress = i + 1; });
+      }
+
+      setState(() { _isCapturing = false; });
+
+      final result = await _api.enroll(
+        widget.user.userId,
+        faceImage,
+        livenessFrames: livenessFrames,
+      );
       if (mounted) { setState(() {
         _success = result['success'] as bool;
         _resultMessage = result['message'] as String;
+        _liveness = result['liveness'] as Map<String, dynamic>?;
         _isEnrolling = false;
       }); }
     } catch (e) {
@@ -64,6 +89,7 @@ class _EnrollPageState extends State<EnrollPage>
         _success = false;
         _resultMessage = '$e';
         _isEnrolling = false;
+        _isCapturing = false;
       }); }
     }
   }
@@ -149,7 +175,9 @@ class _EnrollPageState extends State<EnrollPage>
             left: 0,
             right: 0,
             child: Text(
-              'Position your face in the frame',
+              _isCapturing
+                ? 'Hold still...'
+                : 'Look at the camera and blink naturally',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.9),
@@ -159,6 +187,35 @@ class _EnrollPageState extends State<EnrollPage>
               ),
             ),
           ),
+
+          // Capture progress bar
+          if (_isCapturing)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 130,
+              left: 40,
+              right: 40,
+              child: Column(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: _captureProgress / _livenessFrameCount,
+                      backgroundColor: Colors.white24,
+                      valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                      minHeight: 6,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '$_captureProgress/$_livenessFrameCount',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.7),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
           // Result banner
           if (_resultMessage != null)
@@ -182,18 +239,59 @@ class _EnrollPageState extends State<EnrollPage>
                       ),
                     ],
                   ),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        _success == true ? Icons.check_circle_rounded : Icons.error_rounded,
-                        color: Colors.white,
-                        size: 22,
+                      Row(
+                        children: [
+                          Icon(
+                            _success == true ? Icons.check_circle_rounded : Icons.error_rounded,
+                            color: Colors.white,
+                            size: 22,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(_resultMessage!,
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(_resultMessage!,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500)),
-                      ),
+                      if (_liveness != null) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    _liveness!['passed'] == true ? Icons.check_circle : Icons.cancel,
+                                    size: 14,
+                                    color: Colors.white,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _liveness!['passed'] == true ? 'Liveness: Passed' : 'Liveness: Failed',
+                                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Blur: ${((_liveness!['blur_score'] as num) * 100).toInt()}%  |  '
+                                'Color: ${((_liveness!['color_score'] as num) * 100).toInt()}%  |  '
+                                'Blink: ${_liveness!['blink_detected'] == true ? 'Yes' : 'No'}',
+                                style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -212,7 +310,7 @@ class _EnrollPageState extends State<EnrollPage>
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: TextButton.icon(
-                      onPressed: () => setState(() => _resultMessage = null),
+                      onPressed: () => setState(() { _resultMessage = null; _liveness = null; }),
                       icon: const Icon(Icons.refresh, color: Colors.white, size: 18),
                       label: const Text('Capture Again',
                         style: TextStyle(color: Colors.white)),
@@ -221,17 +319,17 @@ class _EnrollPageState extends State<EnrollPage>
                 AnimatedBuilder(
                   animation: _pulseAnimation,
                   builder: (context, child) => Transform.scale(
-                    scale: _isEnrolling ? 1.0 : _pulseAnimation.value,
+                    scale: (_isEnrolling || _isCapturing) ? 1.0 : _pulseAnimation.value,
                     child: child,
                   ),
                   child: GestureDetector(
-                    onTap: _isEnrolling ? null : _enroll,
+                    onTap: (_isEnrolling || _isCapturing) ? null : _enroll,
                     child: Container(
                       width: 72,
                       height: 72,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: _isEnrolling ? Colors.grey.shade400 : Colors.white,
+                        color: (_isEnrolling || _isCapturing) ? Colors.grey.shade400 : Colors.white,
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withValues(alpha: 0.25),
@@ -240,7 +338,7 @@ class _EnrollPageState extends State<EnrollPage>
                           ),
                         ],
                       ),
-                      child: _isEnrolling
+                      child: _isEnrolling || _isCapturing
                         ? const CircularProgressIndicator(strokeWidth: 3, color: Colors.white)
                         : const Icon(Icons.camera_alt_rounded, color: Colors.black87, size: 30),
                     ),
@@ -248,7 +346,11 @@ class _EnrollPageState extends State<EnrollPage>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _isEnrolling ? 'Enrolling...' : 'Tap to capture',
+                  _isCapturing
+                    ? 'Capturing $_captureProgress/$_livenessFrameCount...'
+                    : _isEnrolling
+                      ? 'Enrolling...'
+                      : 'Tap to capture',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.8),
                     fontSize: 13,

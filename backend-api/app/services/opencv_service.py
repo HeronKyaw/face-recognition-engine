@@ -1,10 +1,9 @@
 import logging
+import urllib.request
 import numpy as np
 import cv2
-import onnxruntime
-from typing import Optional
+from typing import Optional, Tuple
 from pathlib import Path
-from huggingface_hub import hf_hub_download
 
 from app.config import get_settings
 
@@ -14,67 +13,52 @@ settings = get_settings()
 try:
     import mediapipe as mp
     _HAS_MEDIAPIPE = True
+    # Detect API version: old (solutions) vs new (tasks)
+    _MP_OLD_API = hasattr(mp, 'solutions')
+    if not _MP_OLD_API:
+        logger.info("Using MediaPipe tasks API (new)")
+    else:
+        logger.info("Using MediaPipe solutions API (legacy)")
 except ImportError:
     _HAS_MEDIAPIPE = False
+    _MP_OLD_API = False
     logger.warning(
-        "mediapipe not installed. Face detection and alignment will be disabled. "
+        "mediapipe not installed. Face detection will be disabled. "
         "Install it with: pip install mediapipe"
     )
 
-# MediaPipe Face Mesh landmark indices for the 5 ArcFace alignment points
-# Using inner+outer eye corners to compute eye centers, nose tip, and mouth corners
-_LEFT_EYE_OUTER = 33
-_LEFT_EYE_INNER = 133
-_RIGHT_EYE_OUTER = 263
-_RIGHT_EYE_INNER = 362
-_NOSE_TIP = 1
-_LEFT_MOUTH = 61
-_RIGHT_MOUTH = 291
-
-# Canonical landmark positions for 112x112 aligned face (ArcFace/InsightFace standard)
-_ALIGN_CANONICAL = np.array([
-    [38.2946, 51.6963],
-    [73.5318, 51.5014],
-    [56.0252, 71.7366],
-    [41.5493, 92.3655],
-    [70.7299, 92.2041],
-], dtype=np.float64)
-
 
 class OpenCVService:
-    _session: Optional[onnxruntime.InferenceSession] = None
-    _input_name: Optional[str] = None
-    _output_name: Optional[str] = None
+    _recognizer: Optional[cv2.FaceRecognizerSF] = None
     _face_mesh: Optional[object] = None
 
     @classmethod
     def initialize(cls) -> None:
-        if cls._session is not None:
-            logger.warning("ONNX model already loaded")
+        if cls._recognizer is not None:
+            logger.warning("SFace model already loaded")
             return
 
-        try:
-            model_path = Path(hf_hub_download(
-                repo_id=settings.model_repo_id,
-                filename=settings.model_filename
-            ))
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to download model {settings.model_filename} from "
-                f"{settings.model_repo_id}: {e}"
-            )
+        model_path = Path(settings.model_path)
+        if not model_path.is_absolute():
+            model_path = Path(__file__).resolve().parent.parent.parent / model_path
+
+        if not model_path.exists():
+            model_path.parent.mkdir(parents=True, exist_ok=True)
+            model_url = "https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
+            logger.info(f"Downloading SFace model from {model_url}...")
+            urllib.request.urlretrieve(model_url, str(model_path))
+            logger.info(f"SFace model downloaded to {model_path}")
 
         try:
-            cls._session = onnxruntime.InferenceSession(
-                str(model_path),
-                providers=["CPUExecutionProvider"]
+            cls._recognizer = cv2.FaceRecognizerSF.create(
+                model=str(model_path),
+                config="",
+                backend_id=cv2.dnn.DNN_BACKEND_OPENCV,
+                target_id=cv2.dnn.DNN_TARGET_CPU,
             )
-
-            cls._input_name = cls._session.get_inputs()[0].name
-            cls._output_name = cls._session.get_outputs()[0].name
 
             logger.info(
-                f"ONNX model loaded: {model_path} (from {settings.model_repo_id}), "
+                f"SFace model loaded: {model_path}, "
                 f"input_size={settings.input_size}, "
                 f"embedding_dim={settings.embedding_dim}"
             )
@@ -83,115 +67,143 @@ class OpenCVService:
             cls._warmup()
 
         except Exception as e:
-            logger.error(f"Failed to load ONNX model: {e}")
+            logger.error(f"Failed to load SFace model: {e}")
             raise
 
     @classmethod
     def _init_mediapipe(cls) -> None:
         if not _HAS_MEDIAPIPE:
             logger.warning(
-                "MediaPipe not available. Face detection and alignment disabled."
+                "MediaPipe not available. Face detection disabled."
             )
             return
         if cls._face_mesh is not None:
             return
-        cls._face_mesh = mp.solutions.face_mesh.FaceMesh(
-            static_image_mode=True,
-            max_num_faces=1,
-            min_detection_confidence=0.5,
-        )
-        logger.info("MediaPipe Face Mesh initialized")
+
+        if _MP_OLD_API:
+            cls._face_mesh = mp.solutions.face_mesh.FaceMesh(
+                static_image_mode=True,
+                max_num_faces=1,
+                min_detection_confidence=0.5,
+            )
+        else:
+            model_dir = Path(__file__).resolve().parent.parent.parent / "models"
+            model_path = model_dir / "face_landmarker.task"
+            if not model_path.exists():
+                model_dir.mkdir(parents=True, exist_ok=True)
+                model_url = (
+                    "https://storage.googleapis.com/mediapipe-models/"
+                    "face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
+                )
+                logger.info(f"Downloading FaceLandmarker model from {model_url}...")
+                urllib.request.urlretrieve(model_url, str(model_path))
+                logger.info(f"FaceLandmarker model downloaded to {model_path}")
+            vision = mp.tasks.vision
+            cls._face_mesh = vision.FaceLandmarker.create_from_options(
+                options=vision.FaceLandmarkerOptions(
+                    base_options=mp.tasks.BaseOptions(model_asset_path=str(model_path)),
+                    running_mode=vision.RunningMode.IMAGE,
+                    num_faces=1,
+                    min_face_detection_confidence=0.5,
+                )
+            )
+        logger.info("MediaPipe Face Landmarker initialized")
 
     @classmethod
     def _warmup(cls) -> None:
-        dummy_input = np.random.randint(0, 255, (112, 112, 3), dtype=np.uint8)
+        dummy_input = np.zeros((112, 112, 3), dtype=np.uint8)
         try:
             _ = cls.extract_embedding(dummy_input, skip_detection=True)
         except RuntimeError:
             pass
-        logger.info("ONNX model warmed up")
+        logger.info("SFace model warmed up")
 
     @classmethod
     def close(cls) -> None:
-        cls._session = None
-        cls._input_name = None
-        cls._output_name = None
+        cls._recognizer = None
         if cls._face_mesh is not None:
-            cls._face_mesh.close()
+            try:
+                cls._face_mesh.close()
+            except Exception:
+                pass
             cls._face_mesh = None
-        logger.info("ONNX model released")
+        logger.info("SFace model released")
 
     @classmethod
     def _ensure_initialized(cls) -> None:
-        if cls._session is None:
-            raise RuntimeError("ONNX model not loaded. Call initialize() first.")
+        if cls._recognizer is None:
+            raise RuntimeError("SFace model not loaded. Call initialize() first.")
 
     @classmethod
-    def detect_and_align_face(cls, image: np.ndarray) -> np.ndarray:
+    def _detect_face(cls, image: np.ndarray) -> Optional[Tuple[Tuple[int, int, int, int], list]]:
+        """Returns ((bbox_x, bbox_y, bbox_w, bbox_h), landmarks) or None."""
         if cls._face_mesh is None:
             if not _HAS_MEDIAPIPE:
                 raise RuntimeError(
-                    "MediaPipe is required for face detection and alignment. "
+                    "MediaPipe is required for face detection. "
                     "Install it with: pip install mediapipe"
                 )
             raise RuntimeError("MediaPipe not initialized. Call initialize() first.")
 
-        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        results = cls._face_mesh.process(rgb)
-
-        if not results or not results.multi_face_landmarks:
-            raise ValueError("No face detected in image")
-
-        landmarks = results.multi_face_landmarks[0]
         h, w = image.shape[:2]
+        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-        src_points = np.array([
-            [
-                (landmarks.landmark[_LEFT_EYE_OUTER].x + landmarks.landmark[_LEFT_EYE_INNER].x) / 2 * w,
-                (landmarks.landmark[_LEFT_EYE_OUTER].y + landmarks.landmark[_LEFT_EYE_INNER].y) / 2 * h,
-            ],
-            [
-                (landmarks.landmark[_RIGHT_EYE_OUTER].x + landmarks.landmark[_RIGHT_EYE_INNER].x) / 2 * w,
-                (landmarks.landmark[_RIGHT_EYE_OUTER].y + landmarks.landmark[_RIGHT_EYE_INNER].y) / 2 * h,
-            ],
-            [
-                landmarks.landmark[_NOSE_TIP].x * w,
-                landmarks.landmark[_NOSE_TIP].y * h,
-            ],
-            [
-                landmarks.landmark[_LEFT_MOUTH].x * w,
-                landmarks.landmark[_LEFT_MOUTH].y * h,
-            ],
-            [
-                landmarks.landmark[_RIGHT_MOUTH].x * w,
-                landmarks.landmark[_RIGHT_MOUTH].y * h,
-            ],
-        ], dtype=np.float64)
+        if _MP_OLD_API:
+            results = cls._face_mesh.process(rgb)
+            if not results or not results.multi_face_landmarks:
+                return None
+            landmarks = results.multi_face_landmarks[0].landmark
+        else:
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+            results = cls._face_mesh.detect(mp_image)
+            if not results or not results.face_landmarks:
+                return None
+            landmarks = results.face_landmarks[0]
 
-        tform = cv2.estimateAffinePartial2D(src_points, _ALIGN_CANONICAL)
-        if tform is None or len(tform[0]) == 0:
-            raise ValueError("Face alignment failed")
+        xs = [lm.x * w for lm in landmarks]
+        ys = [lm.y * h for lm in landmarks]
 
-        aligned = cv2.warpAffine(
-            image, tform[0], (112, 112),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=(127, 127, 127),
-        )
+        x, y = int(min(xs)), int(min(ys))
+        x2, y2 = int(max(xs)), int(max(ys))
 
-        return aligned
+        pad_x = int((x2 - x) * 0.2)
+        pad_y = int((y2 - y) * 0.2)
+
+        x = max(0, x - pad_x)
+        y = max(0, y - pad_y)
+        x2 = min(w, x2 + pad_x)
+        y2 = min(h, y2 + pad_y)
+
+        return ((x, y, x2 - x, y2 - y), landmarks)
 
     @classmethod
-    def preprocess_image(cls, image: np.ndarray) -> np.ndarray:
-        resized = cv2.resize(image, settings.input_size, interpolation=cv2.INTER_LINEAR)
+    def _get_face_bbox(cls, image: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
+        result = cls._detect_face(image)
+        if result is None:
+            return None
+        return result[0]
 
-        rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+    @classmethod
+    def get_face_landmarks(cls, image: np.ndarray) -> Optional[list]:
+        """Returns MediaPipe face landmarks for the first detected face, or None."""
+        result = cls._detect_face(image)
+        if result is None:
+            return None
+        return result[1]
 
-        normalized = (rgb.astype(np.float32) - 127.5) / 128.0
+    @classmethod
+    def _crop_and_resize(cls, image: np.ndarray, bbox: Tuple[int, int, int, int]) -> np.ndarray:
+        """Crop face region and resize to 112x112.
 
-        blob = np.expand_dims(normalized, axis=0).astype(np.float32)
-
-        return blob
+        OpenCV 5.x's alignCrop has a non-deterministic bug producing
+        inconsistent alignments and sometimes blank crops, so we use
+        a direct crop + resize instead for reliability.
+        """
+        x, y, w, h = bbox
+        face = image[y:y + h, x:x + w]
+        if face.size == 0:
+            raise ValueError("Empty face crop from bbox")
+        return cv2.resize(face, (112, 112))
 
     @classmethod
     def extract_embedding(cls, image: np.ndarray, skip_detection: bool = False) -> np.ndarray:
@@ -204,28 +216,28 @@ class OpenCVService:
             raise ValueError(f"Expected 3-channel BGR image, got shape {image.shape}")
 
         try:
-            if not skip_detection and cls._face_mesh is not None:
-                image = cls.detect_and_align_face(image)
+            if not skip_detection:
+                bbox = cls._get_face_bbox(image)
+                if bbox is None:
+                    raise ValueError("No face detected in image")
+                aligned_face = cls._crop_and_resize(image, bbox)
+            else:
+                aligned_face = image
 
-            blob = cls.preprocess_image(image)
+            features = cls._recognizer.feature(aligned_face)
+            embedding = features.flatten()
 
-            output = cls._session.run(
-                [cls._output_name],
-                {cls._input_name: blob}
-            )[0]
-
-            embedding = output.flatten()
-
-            norm = np.linalg.norm(embedding)
-            if norm > 0:
-                embedding = embedding / norm
+            raw_norm = np.linalg.norm(embedding)
+            logger.info(f"Embedding stats: raw_norm={raw_norm:.6f}, range=[{embedding.min():.6f}, {embedding.max():.6f}], first5={embedding[:5].tolist()}")
+            if raw_norm > 0:
+                embedding = embedding / raw_norm
 
             return embedding.astype(np.float32)
 
         except ValueError:
             raise
         except Exception as e:
-            logger.error(f"ONNX inference error: {e}")
+            logger.error(f"SFace inference error: {e}")
             raise RuntimeError(f"Face embedding extraction failed: {e}")
 
     @classmethod
@@ -246,5 +258,5 @@ class OpenCVService:
             _ = cls.extract_embedding(dummy, skip_detection=True)
             return True
         except Exception as e:
-            logger.error(f"OpenCV service health check failed: {e}")
+            logger.error(f"SFace health check failed: {e}")
             return False

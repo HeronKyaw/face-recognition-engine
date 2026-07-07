@@ -3,9 +3,12 @@ from .verification import (
     EnrollResponse,
     VerifyRequest,
     VerifyResponse,
-    EmbeddingResponse
+    EmbeddingResponse,
+    LivenessResult,
 )
 from .user import (
+    ResetEnrollmentsResponse,
+    ResetFaceResponse,
     UserCreate,
     UserUpdate,
     UserResponse,
@@ -20,6 +23,9 @@ __all__ = [
     "VerifyRequest",
     "VerifyResponse",
     "EmbeddingResponse",
+    "LivenessResult",
+    "ResetEnrollmentsResponse",
+    "ResetFaceResponse",
     "UserCreate",
     "UserUpdate",
     "UserResponse",

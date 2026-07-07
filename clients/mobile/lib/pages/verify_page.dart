@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import '../services/api_service.dart';
 
+const _livenessFrameCount = 10;
+const _livenessFrameDelay = Duration(milliseconds: 200);
+
 class VerifyPage extends StatefulWidget {
   const VerifyPage({super.key});
 
@@ -17,6 +20,8 @@ class _VerifyPageState extends State<VerifyPage>
   late Animation<double> _pulseAnimation;
   bool _isInitialized = false;
   bool _isVerifying = false;
+  bool _isCapturing = false;
+  int _captureProgress = 0;
   Map<String, dynamic>? _result;
 
   @override
@@ -47,14 +52,29 @@ class _VerifyPageState extends State<VerifyPage>
   Future<void> _verify() async {
     if (_controller == null || !_isInitialized || _isVerifying) return;
     setState(() { _isVerifying = true; _result = null; });
+
     try {
-      final image = await _controller!.takePicture();
-      final result = await _api.verify(image);
+      final faceImage = await _controller!.takePicture();
+
+      final livenessFrames = <XFile>[];
+      setState(() { _isCapturing = true; _captureProgress = 0; });
+
+      for (int i = 0; i < _livenessFrameCount; i++) {
+        await Future.delayed(_livenessFrameDelay);
+        final frame = await _controller!.takePicture();
+        livenessFrames.add(frame);
+        if (mounted) setState(() { _captureProgress = i + 1; });
+      }
+
+      setState(() { _isCapturing = false; });
+
+      final result = await _api.verify(faceImage, livenessFrames: livenessFrames);
       if (mounted) setState(() { _result = result; _isVerifying = false; });
     } catch (e) {
       if (mounted) { setState(() {
         _result = {'success': false, 'message': '$e'};
         _isVerifying = false;
+        _isCapturing = false;
       }); }
     }
   }
@@ -73,6 +93,7 @@ class _VerifyPageState extends State<VerifyPage>
     final matchedName = _result?['name'] as String?;
     final distance = _result?['distance'] as num?;
     final message = _result?['message'] as String?;
+    final liveness = _result?['liveness'] as Map<String, dynamic>?;
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -125,7 +146,9 @@ class _VerifyPageState extends State<VerifyPage>
             left: 0,
             right: 0,
             child: Text(
-              'Position your face in the frame',
+              _isCapturing
+                ? 'Hold still...'
+                : 'Look at the camera and blink naturally',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.9),
@@ -135,6 +158,35 @@ class _VerifyPageState extends State<VerifyPage>
               ),
             ),
           ),
+
+          // Capture progress bar
+          if (_isCapturing)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 130,
+              left: 40,
+              right: 40,
+              child: Column(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: _captureProgress / _livenessFrameCount,
+                      backgroundColor: Colors.white24,
+                      valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                      minHeight: 6,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '$_captureProgress/$_livenessFrameCount',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.7),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
           // Result banner
           if (_result != null)
@@ -187,6 +239,42 @@ class _VerifyPageState extends State<VerifyPage>
                         child: Text('Confidence: ${(distance as double).toStringAsFixed(4)}',
                           style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 13)),
                       ),
+                    if (liveness != null) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  liveness['passed'] == true ? Icons.check_circle : Icons.cancel,
+                                  size: 14,
+                                  color: Colors.white,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  liveness['passed'] == true ? 'Liveness: Passed' : 'Liveness: Failed',
+                                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Blur: ${((liveness['blur_score'] as num) * 100).toInt()}%  |  '
+                              'Color: ${((liveness['color_score'] as num) * 100).toInt()}%  |  '
+                              'Blink: ${liveness['blink_detected'] == true ? 'Yes' : 'No'}',
+                              style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     if (message != null && matchedUserId == null)
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
@@ -219,17 +307,17 @@ class _VerifyPageState extends State<VerifyPage>
                 AnimatedBuilder(
                   animation: _pulseAnimation,
                   builder: (context, child) => Transform.scale(
-                    scale: _isVerifying ? 1.0 : _pulseAnimation.value,
+                    scale: (_isVerifying || _isCapturing) ? 1.0 : _pulseAnimation.value,
                     child: child,
                   ),
                   child: GestureDetector(
-                    onTap: _isVerifying ? null : _verify,
+                    onTap: (_isVerifying || _isCapturing) ? null : _verify,
                     child: Container(
                       width: 72,
                       height: 72,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: _isVerifying ? Colors.grey.shade400 : Colors.white,
+                        color: (_isVerifying || _isCapturing) ? Colors.grey.shade400 : Colors.white,
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withValues(alpha: 0.25),
@@ -238,7 +326,7 @@ class _VerifyPageState extends State<VerifyPage>
                           ),
                         ],
                       ),
-                      child: _isVerifying
+                      child: _isVerifying || _isCapturing
                         ? const CircularProgressIndicator(strokeWidth: 3, color: Colors.white)
                         : const Icon(Icons.camera_alt_rounded, color: Colors.black87, size: 30),
                     ),
@@ -246,7 +334,11 @@ class _VerifyPageState extends State<VerifyPage>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _isVerifying ? 'Verifying...' : 'Tap to capture',
+                  _isCapturing
+                    ? 'Capturing $_captureProgress/$_livenessFrameCount...'
+                    : _isVerifying
+                      ? 'Verifying...'
+                      : 'Tap to capture',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.8),
                     fontSize: 13,
