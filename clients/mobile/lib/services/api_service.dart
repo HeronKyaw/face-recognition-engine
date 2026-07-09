@@ -43,9 +43,13 @@ class ApiService {
     String userId,
     XFile image, {
     List<XFile> livenessFrames = const [],
+    String method = 'frame_burst',
+    String? challengeId,
   }) async {
     final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/api/v1/enroll'));
     request.fields['user_id'] = userId;
+    request.fields['method'] = method;
+    if (challengeId != null) request.fields['challenge_id'] = challengeId;
     request.files.add(await http.MultipartFile.fromPath('face_image', image.path));
     for (final f in livenessFrames) {
       request.files.add(await http.MultipartFile.fromPath('liveness_frames', f.path));
@@ -60,13 +64,43 @@ class ApiService {
     XFile image, {
     List<XFile> livenessFrames = const [],
     String? deviceId,
+    String method = 'frame_burst',
+    String? challengeId,
   }) async {
     final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/api/v1/verify'));
+    request.fields['method'] = method;
+    if (challengeId != null) request.fields['challenge_id'] = challengeId;
     request.files.add(await http.MultipartFile.fromPath('face_image', image.path));
     for (final f in livenessFrames) {
       request.files.add(await http.MultipartFile.fromPath('liveness_frames', f.path));
     }
     if (deviceId != null) request.fields['device_id'] = deviceId;
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+    _checkResponse(response);
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> initChallenge() async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/v1/challenge/init'),
+      headers: _jsonHeaders,
+    );
+    _checkResponse(response);
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> verifyChallengeStep(
+    String challengeId,
+    int stepIndex,
+    List<XFile> frames,
+  ) async {
+    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/api/v1/challenge/step'));
+    request.fields['challenge_id'] = challengeId;
+    request.fields['step_index'] = stepIndex.toString();
+    for (final f in frames) {
+      request.files.add(await http.MultipartFile.fromPath('liveness_frames', f.path));
+    }
     final streamed = await request.send();
     final response = await http.Response.fromStream(streamed);
     _checkResponse(response);

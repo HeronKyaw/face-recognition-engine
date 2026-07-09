@@ -23,6 +23,8 @@ class _VerifyPageState extends State<VerifyPage>
   bool _isCapturing = false;
   int _captureProgress = 0;
   Map<String, dynamic>? _result;
+  String? _selectedMethod;
+  bool _cameraActive = false;
 
   @override
   void initState() {
@@ -34,7 +36,6 @@ class _VerifyPageState extends State<VerifyPage>
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.08).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
-    _initCamera();
   }
 
   Future<void> _initCamera() async {
@@ -47,6 +48,24 @@ class _VerifyPageState extends State<VerifyPage>
     _controller = CameraController(front, ResolutionPreset.medium);
     await _controller!.initialize();
     if (mounted) setState(() => _isInitialized = true);
+  }
+
+  Future<void> _startCamera() async {
+    await _initCamera();
+    if (mounted) {
+      setState(() => _cameraActive = true);
+    }
+  }
+
+  void _stopCamera() {
+    _controller?.dispose();
+    _controller = null;
+    if (mounted) {
+      setState(() {
+        _isInitialized = false;
+        _cameraActive = false;
+      });
+    }
   }
 
   Future<void> _verify() async {
@@ -68,8 +87,16 @@ class _VerifyPageState extends State<VerifyPage>
 
       setState(() { _isCapturing = false; });
 
-      final result = await _api.verify(faceImage, livenessFrames: livenessFrames);
-      if (mounted) setState(() { _result = result; _isVerifying = false; });
+      final result = await _api.verify(
+        faceImage,
+        livenessFrames: livenessFrames,
+        method: _selectedMethod ?? 'frame_burst',
+      );
+      if (mounted) {
+        final success = result['success'] as bool? ?? false;
+        setState(() { _result = result; _isVerifying = false; });
+        if (success) _stopCamera();
+      }
     } catch (e) {
       if (mounted) { setState(() {
         _result = {'success': false, 'message': '$e'};
@@ -77,6 +104,11 @@ class _VerifyPageState extends State<VerifyPage>
         _isCapturing = false;
       }); }
     }
+  }
+
+  void _resetAndRestart() {
+    setState(() { _result = null; });
+    _startCamera();
   }
 
   @override
@@ -117,49 +149,51 @@ class _VerifyPageState extends State<VerifyPage>
       ),
       body: Stack(
         children: [
-          _isInitialized
-            ? CameraPreview(_controller!)
-            : Container(color: Colors.black, child: const Center(child: CircularProgressIndicator(color: Colors.white))),
+          if (_cameraActive && _isInitialized)
+            CameraPreview(_controller!)
+          else if (_cameraActive)
+            Container(color: Colors.black, child: const Center(child: CircularProgressIndicator(color: Colors.white)))
+          else
+            _buildModeSelection(),
 
-          // Face guide overlay
-          Center(
-            child: Container(
-              width: 260,
-              height: 320,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(130),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.5), width: 2),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.15),
-                    blurRadius: 40,
-                    spreadRadius: 10,
-                  ),
-                ],
+          if (_cameraActive && _result == null)
+            Center(
+              child: Container(
+                width: 260,
+                height: 320,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(130),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.5), width: 2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.15),
+                      blurRadius: 40,
+                      spreadRadius: 10,
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
 
-          // Instruction text
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 100,
-            left: 0,
-            right: 0,
-            child: Text(
-              _isCapturing
-                ? 'Hold still...'
-                : 'Look at the camera and blink naturally',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.9),
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                shadows: [Shadow(color: Colors.black.withValues(alpha: 0.4), blurRadius: 8)],
+          if (_cameraActive && _result == null)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 100,
+              left: 0,
+              right: 0,
+              child: Text(
+                _isCapturing
+                  ? 'Hold still...'
+                  : 'Look at the camera and blink naturally',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  shadows: [Shadow(color: Colors.black.withValues(alpha: 0.4), blurRadius: 8)],
+                ),
               ),
             ),
-          ),
 
-          // Capture progress bar
           if (_isCapturing)
             Positioned(
               top: MediaQuery.of(context).padding.top + 130,
@@ -188,7 +222,6 @@ class _VerifyPageState extends State<VerifyPage>
               ),
             ),
 
-          // Result banner
           if (_result != null)
             Positioned(
               top: MediaQuery.of(context).padding.top + 80,
@@ -286,7 +319,6 @@ class _VerifyPageState extends State<VerifyPage>
               ),
             ),
 
-          // Bottom action area
           Positioned(
             left: 0,
             right: 0,
@@ -298,58 +330,186 @@ class _VerifyPageState extends State<VerifyPage>
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: TextButton.icon(
-                      onPressed: () => setState(() => _result = null),
+                      onPressed: _resetAndRestart,
                       icon: const Icon(Icons.refresh, color: Colors.white, size: 18),
                       label: const Text('Capture Again',
                         style: TextStyle(color: Colors.white)),
                     ),
                   ),
-                AnimatedBuilder(
-                  animation: _pulseAnimation,
-                  builder: (context, child) => Transform.scale(
-                    scale: (_isVerifying || _isCapturing) ? 1.0 : _pulseAnimation.value,
-                    child: child,
-                  ),
-                  child: GestureDetector(
-                    onTap: (_isVerifying || _isCapturing) ? null : _verify,
-                    child: Container(
-                      width: 72,
-                      height: 72,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: (_isVerifying || _isCapturing) ? Colors.grey.shade400 : Colors.white,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.25),
-                            blurRadius: 16,
-                            offset: const Offset(0, 4),
+                if (_cameraActive && _result == null)
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AnimatedBuilder(
+                        animation: _pulseAnimation,
+                        builder: (context, child) => Transform.scale(
+                          scale: (_isVerifying || _isCapturing) ? 1.0 : _pulseAnimation.value,
+                          child: child,
+                        ),
+                        child: GestureDetector(
+                          onTap: (_isVerifying || _isCapturing) ? null : _verify,
+                          child: Container(
+                            width: 72,
+                            height: 72,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: (_isVerifying || _isCapturing) ? Colors.grey.shade400 : Colors.white,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.25),
+                                  blurRadius: 16,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: _isVerifying || _isCapturing
+                              ? const CircularProgressIndicator(strokeWidth: 3, color: Colors.white)
+                              : const Icon(Icons.camera_alt_rounded, color: Colors.black87, size: 30),
                           ),
-                        ],
+                        ),
                       ),
-                      child: _isVerifying || _isCapturing
-                        ? const CircularProgressIndicator(strokeWidth: 3, color: Colors.white)
-                        : const Icon(Icons.camera_alt_rounded, color: Colors.black87, size: 30),
-                    ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _isCapturing
+                          ? 'Capturing $_captureProgress/$_livenessFrameCount...'
+                          : _isVerifying
+                            ? 'Verifying...'
+                            : 'Tap to capture',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.8),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          shadows: [Shadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 4)],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextButton.icon(
+                        onPressed: _stopCamera,
+                        icon: const Icon(Icons.videocam_off, color: Colors.white, size: 18),
+                        label: const Text('Stop Camera',
+                          style: TextStyle(color: Colors.white)),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _isCapturing
-                    ? 'Capturing $_captureProgress/$_livenessFrameCount...'
-                    : _isVerifying
-                      ? 'Verifying...'
-                      : 'Tap to capture',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.8),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    shadows: [Shadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 4)],
-                  ),
-                ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildModeSelection() {
+    return Container(
+      color: Colors.black,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Select Liveness Method',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 32),
+              _ModeCard(
+                icon: Icons.burst_mode,
+                title: 'Frame Burst',
+                description: 'Captures a burst of frames to detect blinks and passive liveness',
+                isSelected: _selectedMethod == 'frame_burst',
+                onTap: () => setState(() => _selectedMethod = 'frame_burst'),
+              ),
+              const SizedBox(height: 12),
+              _ModeCard(
+                icon: Icons.assignment,
+                title: 'Challenge',
+                description: 'Performs a sequence of actions (blink, turn head, etc.) for liveness verification',
+                isSelected: _selectedMethod == 'challenge',
+                onTap: () => setState(() => _selectedMethod = 'challenge'),
+              ),
+              const SizedBox(height: 32),
+              FilledButton.icon(
+                onPressed: _selectedMethod != null ? _startCamera : null,
+                icon: const Icon(Icons.videocam, size: 20),
+                label: const Text('Start Camera'),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ModeCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String description;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _ModeCard({
+    required this.icon,
+    required this.title,
+    required this.description,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: isSelected ? Colors.white.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.05),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: isSelected
+              ? Border.all(color: Colors.white.withValues(alpha: 0.5))
+              : null,
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: Colors.white, size: 28),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(description,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.6),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isSelected)
+                Icon(Icons.check_circle, color: Colors.green.shade300, size: 22),
+            ],
+          ),
+        ),
       ),
     );
   }

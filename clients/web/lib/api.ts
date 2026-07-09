@@ -28,6 +28,8 @@ export interface UserDeleteResponse {
   chroma_deleted: boolean;
 }
 
+export type LivenessMethod = "frame_burst" | "challenge";
+
 export interface LivenessResult {
   passed: boolean;
   passive_score: number;
@@ -35,6 +37,30 @@ export interface LivenessResult {
   color_score: number;
   blink_detected: boolean;
   frame_diversity_ok: boolean;
+  method: LivenessMethod;
+  challenge_verified?: boolean;
+  challenge_expected_count?: number;
+  challenge_actual_count?: number;
+  message: string;
+}
+
+export interface ChallengeStep {
+  action: string;
+  instruction: string;
+}
+
+export interface ChallengeInitResponse {
+  challenge_id: string;
+  steps: ChallengeStep[];
+  total_steps: number;
+  expires_at: string;
+}
+
+export interface StepVerifyResponse {
+  passed: boolean;
+  step_index: number;
+  next_step_index?: number;
+  completed: boolean;
   message: string;
 }
 
@@ -117,19 +143,48 @@ export const api = {
   deleteUser: (userId: string) =>
     request<UserDeleteResponse>(`/api/v1/users/${userId}`, { method: "DELETE" }),
 
-  enroll: async (userId: string, file: File, livenessFrames: File[] = []) => {
+  initChallenge: () =>
+    request<ChallengeInitResponse>("/api/v1/challenge/init", { method: "POST" }),
+
+  verifyChallengeStep: async (challengeId: string, stepIndex: number, frames: File[]) => {
+    const form = new FormData();
+    form.append("challenge_id", challengeId);
+    form.append("step_index", String(stepIndex));
+    for (const f of frames) {
+      form.append("liveness_frames", f);
+    }
+    return request<StepVerifyResponse>("/api/v1/challenge/step", { method: "POST", body: form });
+  },
+
+  enroll: async (
+    userId: string,
+    file: File,
+    livenessFrames: File[] = [],
+    method: LivenessMethod = "frame_burst",
+    challengeId?: string
+  ) => {
     const form = new FormData();
     form.append("user_id", userId);
     form.append("face_image", file);
+    form.append("method", method);
+    if (challengeId) form.append("challenge_id", challengeId);
     for (const f of livenessFrames) {
       form.append("liveness_frames", f);
     }
     return request<EnrollResponse>("/api/v1/enroll", { method: "POST", body: form });
   },
 
-  verify: async (file: File, livenessFrames: File[] = [], deviceId?: string) => {
+  verify: async (
+    file: File,
+    livenessFrames: File[] = [],
+    deviceId?: string,
+    method: LivenessMethod = "frame_burst",
+    challengeId?: string
+  ) => {
     const form = new FormData();
     form.append("face_image", file);
+    form.append("method", method);
+    if (challengeId) form.append("challenge_id", challengeId);
     for (const f of livenessFrames) {
       form.append("liveness_frames", f);
     }

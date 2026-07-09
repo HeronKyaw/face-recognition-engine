@@ -2,6 +2,7 @@ from .mysql_service import MySQLService
 from .chroma_service import ChromaService, SearchResult
 from .opencv_service import OpenCVService
 from .liveness_service import LivenessService, LivenessResult
+from .challenge_service import ChallengeService
 
 __all__ = [
     "MySQLService",
@@ -10,4 +11,5 @@ __all__ = [
     "OpenCVService",
     "LivenessService",
     "LivenessResult",
+    "ChallengeService",
 ]

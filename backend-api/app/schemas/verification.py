@@ -1,6 +1,12 @@
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional
+from typing import Optional, Any
 from datetime import datetime
+from enum import Enum
+
+
+class LivenessMethod(str, Enum):
+    frame_burst = "frame_burst"
+    challenge = "challenge"
 
 
 class EnrollRequest(BaseModel):
@@ -14,6 +20,27 @@ class EnrollRequest(BaseModel):
         }
 
 
+class ChallengeInitResponse(BaseModel):
+    challenge_id: str
+    steps: list[dict[str, Any]]
+    total_steps: int
+    expires_at: str
+
+
+class StepVerifyRequest(BaseModel):
+    challenge_id: str
+    step_index: int
+    frames: list[str]
+
+
+class StepVerifyResponse(BaseModel):
+    passed: bool
+    step_index: int
+    next_step_index: Optional[int] = None
+    completed: bool = False
+    message: str = ""
+
+
 class LivenessResult(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     passed: bool
@@ -22,6 +49,10 @@ class LivenessResult(BaseModel):
     color_score: float = Field(ge=0.0, le=1.0)
     blink_detected: bool
     frame_diversity_ok: bool
+    method: LivenessMethod = LivenessMethod.frame_burst
+    challenge_verified: Optional[bool] = None
+    challenge_expected_count: Optional[int] = None
+    challenge_actual_count: Optional[int] = None
     message: str = ""
 
 

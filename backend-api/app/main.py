@@ -18,7 +18,7 @@ from app.config import get_settings
 from app.routes.health import router as health_router
 from app.routes.users import router as users_router
 from app.routes.verification import router as verification_router
-from app.services import ChromaService, MySQLService, OpenCVService
+from app.services import ChallengeService, ChromaService, MySQLService, OpenCVService
 
 settings = get_settings()
 
@@ -55,11 +55,19 @@ async def lifespan(app: FastAPI):
         logger.error(f"OpenCV DNN initialization failed: {e}")
         raise
 
+    try:
+        ChallengeService.initialize()
+        logger.info("Challenge service initialized")
+    except Exception as e:
+        logger.error(f"Challenge service initialization failed: {e}")
+        raise
+
     logger.info("All services initialized successfully")
 
     yield
 
     logger.info("Shutting down services...")
+    ChallengeService.close()
     OpenCVService.close()
     ChromaService.close()
     MySQLService.close()

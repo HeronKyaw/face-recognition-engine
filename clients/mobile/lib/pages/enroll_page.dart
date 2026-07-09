@@ -28,6 +28,13 @@ class _EnrollPageState extends State<EnrollPage>
   String? _resultMessage;
   bool? _success;
   Map<String, dynamic>? _liveness;
+  String? _selectedMethod;
+  bool _cameraActive = false;
+
+  // Challenge-specific state
+  String? _challengeId;
+  List<dynamic>? _challengeSteps;
+  int _currentStepIndex = 0;
 
   @override
   void initState() {
@@ -39,7 +46,6 @@ class _EnrollPageState extends State<EnrollPage>
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.08).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
-    _initCamera();
   }
 
   Future<void> _initCamera() async {
@@ -54,6 +60,39 @@ class _EnrollPageState extends State<EnrollPage>
     if (mounted) setState(() => _isInitialized = true);
   }
 
+  Future<void> _startCamera() async {
+    if (_selectedMethod == 'challenge') {
+      try {
+        final challenge = await _api.initChallenge();
+        _challengeId = challenge['challenge_id'] as String;
+        _challengeSteps = challenge['steps'] as List<dynamic>;
+        _currentStepIndex = 0;
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to init challenge: $e'), backgroundColor: Colors.red),
+          );
+        }
+        return;
+      }
+    }
+    await _initCamera();
+    if (mounted) {
+      setState(() => _cameraActive = true);
+    }
+  }
+
+  void _stopCamera() {
+    _controller?.dispose();
+    _controller = null;
+    if (mounted) {
+      setState(() {
+        _isInitialized = false;
+        _cameraActive = false;
+      });
+    }
+  }
+
   Future<void> _enroll() async {
     if (_controller == null || !_isInitialized || _isEnrolling) return;
     setState(() { _isEnrolling = true; _resultMessage = null; _liveness = null; });
@@ -61,29 +100,67 @@ class _EnrollPageState extends State<EnrollPage>
     try {
       final faceImage = await _controller!.takePicture();
 
-      final livenessFrames = <XFile>[];
-      setState(() { _isCapturing = true; _captureProgress = 0; });
+      if (_selectedMethod == 'challenge' && _challengeId != null) {
+        // Send face image as the first frame, then complete remaining challenge steps
+        final livenessFrames = <XFile>[];
+        setState(() { _isCapturing = true; _captureProgress = 0; });
 
-      for (int i = 0; i < _livenessFrameCount; i++) {
-        await Future.delayed(_livenessFrameDelay);
-        final frame = await _controller!.takePicture();
-        livenessFrames.add(frame);
-        if (mounted) setState(() { _captureProgress = i + 1; });
+        for (int i = 0; i < _livenessFrameCount; i++) {
+          await Future.delayed(_livenessFrameDelay);
+          final frame = await _controller!.takePicture();
+          livenessFrames.add(frame);
+          if (mounted) setState(() { _captureProgress = i + 1; });
+        }
+
+        setState(() { _isCapturing = false; });
+
+        final result = await _api.enroll(
+          widget.user.userId,
+          faceImage,
+          livenessFrames: livenessFrames,
+          method: 'challenge',
+          challengeId: _challengeId,
+        );
+        if (mounted) {
+          final success = result['success'] as bool;
+          setState(() {
+            _success = success;
+            _resultMessage = result['message'] as String;
+            _liveness = result['liveness'] as Map<String, dynamic>?;
+            _isEnrolling = false;
+          });
+          if (success) _stopCamera();
+        }
+      } else {
+        final livenessFrames = <XFile>[];
+        setState(() { _isCapturing = true; _captureProgress = 0; });
+
+        for (int i = 0; i < _livenessFrameCount; i++) {
+          await Future.delayed(_livenessFrameDelay);
+          final frame = await _controller!.takePicture();
+          livenessFrames.add(frame);
+          if (mounted) setState(() { _captureProgress = i + 1; });
+        }
+
+        setState(() { _isCapturing = false; });
+
+        final result = await _api.enroll(
+          widget.user.userId,
+          faceImage,
+          livenessFrames: livenessFrames,
+          method: 'frame_burst',
+        );
+        if (mounted) {
+          final success = result['success'] as bool;
+          setState(() {
+            _success = success;
+            _resultMessage = result['message'] as String;
+            _liveness = result['liveness'] as Map<String, dynamic>?;
+            _isEnrolling = false;
+          });
+          if (success) _stopCamera();
+        }
       }
-
-      setState(() { _isCapturing = false; });
-
-      final result = await _api.enroll(
-        widget.user.userId,
-        faceImage,
-        livenessFrames: livenessFrames,
-      );
-      if (mounted) { setState(() {
-        _success = result['success'] as bool;
-        _resultMessage = result['message'] as String;
-        _liveness = result['liveness'] as Map<String, dynamic>?;
-        _isEnrolling = false;
-      }); }
     } catch (e) {
       if (mounted) { setState(() {
         _success = false;
@@ -92,6 +169,18 @@ class _EnrollPageState extends State<EnrollPage>
         _isCapturing = false;
       }); }
     }
+  }
+
+  void _resetAndRestart() {
+    setState(() {
+      _resultMessage = null;
+      _liveness = null;
+      _success = null;
+      _challengeId = null;
+      _challengeSteps = null;
+      _currentStepIndex = 0;
+    });
+    _startCamera();
   }
 
   @override
@@ -146,49 +235,53 @@ class _EnrollPageState extends State<EnrollPage>
       ),
       body: Stack(
         children: [
-          _isInitialized
-            ? CameraPreview(_controller!)
-            : Container(color: Colors.black, child: const Center(child: CircularProgressIndicator(color: Colors.white))),
+          if (_cameraActive && _isInitialized)
+            CameraPreview(_controller!)
+          else if (_cameraActive)
+            Container(color: Colors.black, child: const Center(child: CircularProgressIndicator(color: Colors.white)))
+          else
+            _buildModeSelection(colorScheme),
 
-          // Face guide overlay
-          Center(
-            child: Container(
-              width: 260,
-              height: 320,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(130),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.5), width: 2),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.15),
-                    blurRadius: 40,
-                    spreadRadius: 10,
-                  ),
-                ],
+          if (_cameraActive && _resultMessage == null)
+            Center(
+              child: Container(
+                width: 260,
+                height: 320,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(130),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.5), width: 2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.15),
+                      blurRadius: 40,
+                      spreadRadius: 10,
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
 
-          // Instruction text
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 100,
-            left: 0,
-            right: 0,
-            child: Text(
-              _isCapturing
-                ? 'Hold still...'
-                : 'Look at the camera and blink naturally',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.9),
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                shadows: [Shadow(color: Colors.black.withValues(alpha: 0.4), blurRadius: 8)],
+          if (_cameraActive && _resultMessage == null)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 100,
+              left: 0,
+              right: 0,
+              child: Text(
+                _isCapturing
+                  ? 'Hold still...'
+                  : (_selectedMethod == 'challenge' && _challengeSteps != null && _currentStepIndex < _challengeSteps!.length)
+                      ? 'Step ${_currentStepIndex + 1}: ${_challengeSteps![_currentStepIndex]['action']}'
+                      : 'Look at the camera and blink naturally',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  shadows: [Shadow(color: Colors.black.withValues(alpha: 0.4), blurRadius: 8)],
+                ),
               ),
             ),
-          ),
 
-          // Capture progress bar
           if (_isCapturing)
             Positioned(
               top: MediaQuery.of(context).padding.top + 130,
@@ -217,7 +310,6 @@ class _EnrollPageState extends State<EnrollPage>
               ),
             ),
 
-          // Result banner
           if (_resultMessage != null)
             Positioned(
               top: MediaQuery.of(context).padding.top + 80,
@@ -298,7 +390,6 @@ class _EnrollPageState extends State<EnrollPage>
               ),
             ),
 
-          // Bottom action area
           Positioned(
             left: 0,
             right: 0,
@@ -310,58 +401,186 @@ class _EnrollPageState extends State<EnrollPage>
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: TextButton.icon(
-                      onPressed: () => setState(() { _resultMessage = null; _liveness = null; }),
+                      onPressed: _resetAndRestart,
                       icon: const Icon(Icons.refresh, color: Colors.white, size: 18),
                       label: const Text('Capture Again',
                         style: TextStyle(color: Colors.white)),
                     ),
                   ),
-                AnimatedBuilder(
-                  animation: _pulseAnimation,
-                  builder: (context, child) => Transform.scale(
-                    scale: (_isEnrolling || _isCapturing) ? 1.0 : _pulseAnimation.value,
-                    child: child,
-                  ),
-                  child: GestureDetector(
-                    onTap: (_isEnrolling || _isCapturing) ? null : _enroll,
-                    child: Container(
-                      width: 72,
-                      height: 72,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: (_isEnrolling || _isCapturing) ? Colors.grey.shade400 : Colors.white,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.25),
-                            blurRadius: 16,
-                            offset: const Offset(0, 4),
+                if (_cameraActive && _resultMessage == null)
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AnimatedBuilder(
+                        animation: _pulseAnimation,
+                        builder: (context, child) => Transform.scale(
+                          scale: (_isEnrolling || _isCapturing) ? 1.0 : _pulseAnimation.value,
+                          child: child,
+                        ),
+                        child: GestureDetector(
+                          onTap: (_isEnrolling || _isCapturing) ? null : _enroll,
+                          child: Container(
+                            width: 72,
+                            height: 72,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: (_isEnrolling || _isCapturing) ? Colors.grey.shade400 : Colors.white,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.25),
+                                  blurRadius: 16,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: _isEnrolling || _isCapturing
+                              ? const CircularProgressIndicator(strokeWidth: 3, color: Colors.white)
+                              : const Icon(Icons.camera_alt_rounded, color: Colors.black87, size: 30),
                           ),
-                        ],
+                        ),
                       ),
-                      child: _isEnrolling || _isCapturing
-                        ? const CircularProgressIndicator(strokeWidth: 3, color: Colors.white)
-                        : const Icon(Icons.camera_alt_rounded, color: Colors.black87, size: 30),
-                    ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _isCapturing
+                          ? 'Capturing $_captureProgress/$_livenessFrameCount...'
+                          : _isEnrolling
+                            ? 'Enrolling...'
+                            : 'Tap to capture',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.8),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          shadows: [Shadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 4)],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextButton.icon(
+                        onPressed: _stopCamera,
+                        icon: const Icon(Icons.videocam_off, color: Colors.white, size: 18),
+                        label: const Text('Stop Camera',
+                          style: TextStyle(color: Colors.white)),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  _isCapturing
-                    ? 'Capturing $_captureProgress/$_livenessFrameCount...'
-                    : _isEnrolling
-                      ? 'Enrolling...'
-                      : 'Tap to capture',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.8),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    shadows: [Shadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 4)],
-                  ),
-                ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildModeSelection(ColorScheme colorScheme) {
+    return Container(
+      color: Colors.black,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Select Liveness Method',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 32),
+              _ModeCard(
+                icon: Icons.burst_mode,
+                title: 'Frame Burst',
+                description: 'Captures a burst of frames to detect blinks and passive liveness',
+                isSelected: _selectedMethod == 'frame_burst',
+                onTap: () => setState(() => _selectedMethod = 'frame_burst'),
+              ),
+              const SizedBox(height: 12),
+              _ModeCard(
+                icon: Icons.assignment,
+                title: 'Challenge',
+                description: 'Performs a sequence of actions (blink, turn head, etc.) for liveness verification',
+                isSelected: _selectedMethod == 'challenge',
+                onTap: () => setState(() => _selectedMethod = 'challenge'),
+              ),
+              const SizedBox(height: 32),
+              FilledButton.icon(
+                onPressed: _selectedMethod != null ? _startCamera : null,
+                icon: const Icon(Icons.videocam, size: 20),
+                label: const Text('Start Camera'),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ModeCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String description;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _ModeCard({
+    required this.icon,
+    required this.title,
+    required this.description,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: isSelected ? Colors.white.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.05),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: isSelected
+              ? Border.all(color: Colors.white.withValues(alpha: 0.5))
+              : null,
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: Colors.white, size: 28),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(description,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.6),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (isSelected)
+                Icon(Icons.check_circle, color: Colors.green.shade300, size: 22),
+            ],
+          ),
+        ),
       ),
     );
   }

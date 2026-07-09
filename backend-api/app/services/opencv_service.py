@@ -192,6 +192,64 @@ class OpenCVService:
         return result[1]
 
     @classmethod
+    def estimate_head_pose(cls, image: np.ndarray, landmarks: Optional[list] = None) -> Optional[dict]:
+        if landmarks is None:
+            landmarks = cls.get_face_landmarks(image)
+        if landmarks is None:
+            return None
+        h, w = image.shape[:2]
+
+        image_points = np.array([
+            (landmarks[1].x * w, landmarks[1].y * h),
+            (landmarks[168].x * w, landmarks[168].y * h),
+            (landmarks[33].x * w, landmarks[33].y * h),
+            (landmarks[263].x * w, landmarks[263].y * h),
+            (landmarks[61].x * w, landmarks[61].y * h),
+            (landmarks[291].x * w, landmarks[291].y * h),
+            (landmarks[199].x * w, landmarks[199].y * h),
+        ], dtype=np.float64)
+
+        model_points = np.array([
+            (0.0, 0.0, 0.0),
+            (0.0, -330.0, -65.0),
+            (-225.0, 170.0, -135.0),
+            (225.0, 170.0, -135.0),
+            (-150.0, -150.0, -125.0),
+            (150.0, -150.0, -125.0),
+            (0.0, -330.0, -65.0),
+        ], dtype=np.float64)
+
+        focal_length = w
+        center = (w / 2, h / 2)
+        camera_matrix = np.array([
+            [focal_length, 0, center[0]],
+            [0, focal_length, center[1]],
+            [0, 0, 1],
+        ], dtype=np.float64)
+        dist_coeffs = np.zeros((4, 1))
+
+        success, rvec, _ = cv2.solvePnP(
+            model_points, image_points, camera_matrix, dist_coeffs,
+            flags=cv2.SOLVEPNP_ITERATIVE
+        )
+        if not success:
+            return None
+
+        rmat, _ = cv2.Rodrigues(rvec)
+        sy = np.sqrt(rmat[0, 0] ** 2 + rmat[1, 0] ** 2)
+        singular = sy < 1e-6
+        if not singular:
+            x = np.degrees(np.arctan2(rmat[2, 1], rmat[2, 2]))
+            y = np.degrees(np.arctan2(-rmat[2, 0], sy))
+            z = np.degrees(np.arctan2(rmat[1, 0], rmat[0, 0]))
+        else:
+            x = np.degrees(np.arctan2(-rmat[1, 2], rmat[1, 1]))
+            y = np.degrees(np.arctan2(-rmat[2, 0], sy))
+            z = 0
+
+        return {"yaw": float(y), "pitch": float(x), "roll": float(z)}
+
+    @classmethod
     def _crop_and_resize(cls, image: np.ndarray, bbox: Tuple[int, int, int, int]) -> np.ndarray:
         """Crop face region and resize to 112x112.
 

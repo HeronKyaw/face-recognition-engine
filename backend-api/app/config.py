@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     # API Configuration
     api_host: str = os.getenv("API_HOST", "0.0.0.0")
     api_port: int = int(os.getenv("API_PORT", "8000"))
-    api_workers: int = int(os.getenv("API_WORKERS", "4"))
+    api_workers: int = int(os.getenv("API_WORKERS", "1"))
 
     # Distance threshold for face verification (cosine distance)
     # SFace default: 0.363 cosine similarity → 0.637 distance
@@ -50,6 +50,18 @@ class Settings(BaseSettings):
     liveness_min_frames: int = int(os.getenv("LIVENESS_MIN_FRAMES", "5"))
     # Minimum average pixel difference between consecutive frames to detect static images
     liveness_frame_diversity_threshold: float = float(os.getenv("LIVENESS_FRAME_DIVERSITY_THRESHOLD", "15.0"))
+
+    # Challenge-Response Liveness Configuration
+    challenge_timeout_seconds: int = int(os.getenv("CHALLENGE_TIMEOUT_SECONDS", "60"))
+    challenge_min_steps: int = int(os.getenv("CHALLENGE_MIN_STEPS", "2"))
+    challenge_max_steps: int = int(os.getenv("CHALLENGE_MAX_STEPS", "4"))
+    challenge_frames_per_step: int = int(os.getenv("CHALLENGE_FRAMES_PER_STEP", "15"))
+    challenge_frame_interval_ms: int = int(os.getenv("CHALLENGE_FRAME_INTERVAL_MS", "80"))
+    challenge_head_turn_yaw_threshold: float = float(os.getenv("CHALLENGE_HEAD_TURN_YAW_THRESHOLD", "20.0"))
+    challenge_mouth_open_mar_threshold: float = float(os.getenv("CHALLENGE_MOUTH_OPEN_MAR_THRESHOLD", "0.5"))
+    challenge_smile_threshold: float = float(os.getenv("CHALLENGE_SMILE_THRESHOLD", "0.3"))
+    challenge_min_blinks: int = int(os.getenv("CHALLENGE_MIN_BLINKS", "1"))
+    challenge_max_blinks: int = int(os.getenv("CHALLENGE_MAX_BLINKS", "3"))
 
     class Config:
         env_file = ".env"
