@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     # Conservative for KYC: 0.3 distance (tighter security given observed genuine distance ~0.006)
     verification_threshold: float = float(os.getenv("VERIFICATION_THRESHOLD", "0.3"))
 
+    # Stricter distance threshold for enrollment duplicate detection (anti-fraud)
+    # Uses a tighter threshold than verification to avoid false-positive rejections
+    enrollment_duplicate_threshold: float = float(os.getenv("ENROLLMENT_DUPLICATE_THRESHOLD", "0.15"))
+
     # Liveness Detection Configuration
     # Passive liveness: texture/blur/color analysis on single image (0-1, higher = more likely live)
     liveness_passive_threshold: float = float(os.getenv("LIVENESS_PASSIVE_THRESHOLD", "0.3"))
@@ -50,6 +54,26 @@ class Settings(BaseSettings):
     liveness_min_frames: int = int(os.getenv("LIVENESS_MIN_FRAMES", "5"))
     # Minimum average pixel difference between consecutive frames to detect static images
     liveness_frame_diversity_threshold: float = float(os.getenv("LIVENESS_FRAME_DIVERSITY_THRESHOLD", "15.0"))
+
+    # Low-Light Enhancement Configuration
+    enable_lowlight_enhancement: bool = os.getenv("ENABLE_LOWLIGHT_ENHANCEMENT", "true").lower() == "true"
+    lowlight_luminance_threshold: int = int(os.getenv("LOWLIGHT_LUMINANCE_THRESHOLD", "50"))
+    clahe_clip_limit: float = float(os.getenv("CLAHE_CLIP_LIMIT", "2.0"))
+    clahe_grid_size: int = int(os.getenv("CLAHE_GRID_SIZE", "8"))
+    enhancement_sharpen: bool = os.getenv("ENHANCEMENT_SHARPEN", "false").lower() == "true"
+
+    # Enrollment Session Configuration (two-step enrollment)
+    enroll_session_ttl_seconds: int = int(os.getenv("ENROLL_SESSION_TTL_SECONDS", "300"))
+
+    # Image Quality Check Configuration
+    quality_blur_threshold: float = float(os.getenv("QUALITY_BLUR_THRESHOLD", "0.15"))
+    quality_min_face_size: int = int(os.getenv("QUALITY_MIN_FACE_SIZE", "80"))
+    quality_max_yaw: float = float(os.getenv("QUALITY_MAX_YAW", "30.0"))
+    quality_brightness_min: int = int(os.getenv("QUALITY_BRIGHTNESS_MIN", "30"))
+    quality_brightness_max: int = int(os.getenv("QUALITY_BRIGHTNESS_MAX", "230"))
+
+    # MediaPipe Configuration
+    mediapipe_detection_confidence: float = float(os.getenv("MEDIAPIPE_DETECTION_CONFIDENCE", "0.5"))
 
     # Challenge-Response Liveness Configuration
     challenge_timeout_seconds: int = int(os.getenv("CHALLENGE_TIMEOUT_SECONDS", "60"))

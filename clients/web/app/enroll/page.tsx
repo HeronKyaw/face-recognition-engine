@@ -2,19 +2,19 @@
 
 import Link from "next/link";
 import { useState, useRef, useEffect, useCallback } from "react";
-import { api, EnrollResponse, UserResponse, ChallengeStep, LivenessMethod } from "@/lib/api";
+import { api, EnrollInitResponse, EnrollCompleteResponse, EnrollResponse, UserResponse, ChallengeStep, LivenessMethod } from "@/lib/api";
 
 const LIVENESS_FRAME_COUNT = 10;
 const LIVENESS_FRAME_INTERVAL = 200;
 const CHALLENGE_FRAMES_PER_STEP = 15;
 const CHALLENGE_FRAME_INTERVAL = 80;
 
-type EnrollState = "idle" | "challenge_init" | "countdown" | "step_capturing" | "step_verifying" | "challenge_complete" | "enrolling" | "done";
+type EnrollState = "idle" | "challenge_init" | "countdown" | "step_capturing" | "step_verifying" | "challenge_complete" | "enrolling" | "init_enrolling" | "complete_enrolling" | "done";
 
 export default function EnrollPage() {
   const [users, setUsers] = useState<UserResponse[]>([]);
   const [userId, setUserId] = useState("");
-  const [result, setResult] = useState<EnrollResponse | null>(null);
+  const [result, setResult] = useState<EnrollResponse | EnrollCompleteResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
@@ -26,6 +26,9 @@ export default function EnrollPage() {
   const [challengeSteps, setChallengeSteps] = useState<ChallengeStep[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
   const [stepMessage, setStepMessage] = useState("");
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [initResult, setInitResult] = useState<EnrollInitResponse | null>(null);
+  const [pendingLivenessFrames, setPendingLivenessFrames] = useState<File[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const loadingRef = useRef(false);
@@ -50,6 +53,9 @@ export default function EnrollPage() {
     setStepMessage("");
     setCountdown(0);
     setCapturingFrames(0);
+    setSessionToken(null);
+    setInitResult(null);
+    setPendingLivenessFrames([]);
   }, []);
 
   useEffect(() => {
@@ -239,15 +245,37 @@ export default function EnrollPage() {
 
   const doChallengeEnroll = async (cid: string) => {
     if (!cid) return;
-    setEnrollState("enrolling");
     setLoading(true);
 
     try {
       const faceImage = await captureSingleFrame();
-      const res = await api.enroll(userId, faceImage, [], "challenge", cid);
-      setResult(res);
+
+      setEnrollState("init_enrolling");
+      setStepMessage("Checking image quality...");
+      const initRes = await api.enrollInit(userId, faceImage);
+
+      if (!initRes.success) {
+        setInitResult(initRes);
+        setResult({
+          success: false,
+          user_id: userId,
+          message: initRes.message,
+          embedding_stored: false,
+          liveness: initRes.passive_liveness,
+        });
+        setEnrollState("done");
+        setLoading(false);
+        return;
+      }
+
+      setSessionToken(initRes.session_token!);
+      setEnrollState("complete_enrolling");
+      setStepMessage("Verifying liveness...");
+
+      const completeRes = await api.enrollComplete(initRes.session_token!, [], "challenge", cid);
+      setResult(completeRes);
       setEnrollState("done");
-      if (res.success) stopCamera();
+      if (completeRes.success) stopCamera();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Enrollment failed");
       setEnrollState("idle");
@@ -261,14 +289,42 @@ export default function EnrollPage() {
     loadingRef.current = true;
     setError("");
     setResult(null);
+    setInitResult(null);
+    setSessionToken(null);
     setLoading(true);
 
     try {
       const { faceImage, livenessFrames } = await captureBurst(LIVENESS_FRAME_COUNT, LIVENESS_FRAME_INTERVAL);
-      const res = await api.enroll(userId, faceImage, livenessFrames, "frame_burst");
-      setResult(res);
+
+      setEnrollState("init_enrolling");
+      setStepMessage("Checking image quality...");
+      const initRes = await api.enrollInit(userId, faceImage);
+
+      if (!initRes.success) {
+        setInitResult(initRes);
+        setResult({
+          success: false,
+          user_id: userId,
+          message: initRes.message,
+          embedding_stored: false,
+          liveness: initRes.passive_liveness,
+        });
+        setEnrollState("done");
+        setLoading(false);
+        setCapturingFrames(0);
+        loadingRef.current = false;
+        return;
+      }
+
+      setSessionToken(initRes.session_token!);
+      setPendingLivenessFrames(livenessFrames);
+      setEnrollState("complete_enrolling");
+      setStepMessage("Verifying liveness...");
+
+      const completeRes = await api.enrollComplete(initRes.session_token!, livenessFrames, "frame_burst");
+      setResult(completeRes);
       setEnrollState("done");
-      if (res.success) stopCamera();
+      if (completeRes.success) stopCamera();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -282,6 +338,9 @@ export default function EnrollPage() {
     setResult(null);
     setError("");
     setEnrollState("idle");
+    setInitResult(null);
+    setSessionToken(null);
+    setPendingLivenessFrames([]);
   };
 
   if (users.length === 0 && !error) {
@@ -325,6 +384,26 @@ export default function EnrollPage() {
             <span className="mt-0.5">{result.success ? "✓" : "!"}</span>
             <div className="flex-1">
               <p className="font-medium">{result.message}</p>
+              {initResult?.quality && !initResult.quality.passed && (
+                <div className="mt-2 space-y-1 text-xs border-t border-amber-200/50 pt-2">
+                  <div className="font-medium text-amber-800">Quality Check Details:</div>
+                  <div className="space-y-0.5 text-amber-700">
+                    <div>Blur: {(initResult.quality.blur.score * 100).toFixed(0)}% (min {(initResult.quality.blur.threshold * 100).toFixed(0)}%) {initResult.quality.blur.passed ? "✓" : "✗"}</div>
+                    {typeof initResult.quality.brightness.passed === "boolean" && (
+                      <div>Brightness: {initResult.quality.brightness.mean_luminance.toFixed(0)}/255 {initResult.quality.brightness.passed ? "✓" : "✗"}</div>
+                    )}
+                    {'min_dimension' in initResult.quality.face_size && (
+                      <div>Face Size: {initResult.quality.face_size.min_dimension}px (min {initResult.quality.face_size.threshold}px) {initResult.quality.face_size.passed ? "✓" : "✗"}</div>
+                    )}
+                    {'yaw' in initResult.quality.face_pose && initResult.quality.face_pose.yaw !== null && (
+                      <div>Head Pose: yaw={initResult.quality.face_pose.yaw}° {initResult.quality.face_pose.passed ? "✓" : "✗"}</div>
+                    )}
+                    {'reason' in initResult.quality.face_size && (
+                      <div>Face: {initResult.quality.face_size.reason} ✗</div>
+                    )}
+                  </div>
+                </div>
+              )}
               {result.liveness && (
                 <div className="mt-2 space-y-1 text-xs border-t border-emerald-200/50 pt-2">
                   <div className="flex items-center gap-2">
@@ -498,6 +577,20 @@ export default function EnrollPage() {
 
                 {(enrollState === "challenge_complete" || enrollState === "enrolling") && (
                   <div className="mt-3 text-center text-sm text-emerald-600 font-medium">
+                    {stepMessage}
+                  </div>
+                )}
+
+                {enrollState === "init_enrolling" && (
+                  <div className="mt-3 text-center text-sm text-indigo-600 font-medium flex items-center justify-center gap-2">
+                    <span className="inline-block w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                    {stepMessage}
+                  </div>
+                )}
+
+                {enrollState === "complete_enrolling" && (
+                  <div className="mt-3 text-center text-sm text-indigo-600 font-medium flex items-center justify-center gap-2">
+                    <span className="inline-block w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
                     {stepMessage}
                   </div>
                 )}

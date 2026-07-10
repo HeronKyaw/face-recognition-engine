@@ -1,4 +1,11 @@
-from app.services import MySQLService, ChromaService, OpenCVService, ChallengeService
+from app.services import (
+    MySQLService,
+    ChromaService,
+    OpenCVService,
+    ChallengeService,
+    SessionService,
+    ImageQualityService,
+)
 
 
 def get_mysql_service() -> MySQLService:
@@ -15,3 +22,11 @@ def get_opencv_service() -> OpenCVService:
 
 def get_challenge_service() -> ChallengeService:
     return ChallengeService
+
+
+def get_session_service() -> SessionService:
+    return SessionService
+
+
+def get_image_quality_service() -> ImageQualityService:
+    return ImageQualityService

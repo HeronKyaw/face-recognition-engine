@@ -83,6 +83,58 @@ class EnrollResponse(BaseModel):
         }
 
 
+class BlurCheck(BaseModel):
+    score: float
+    threshold: float
+    passed: bool
+
+
+class BrightnessCheck(BaseModel):
+    mean_luminance: float
+    range: list[float]
+    passed: bool
+
+
+class FaceSizeCheck(BaseModel):
+    width: int
+    height: int
+    min_dimension: int
+    threshold: int
+    passed: bool
+
+
+class FacePoseCheck(BaseModel):
+    yaw: Optional[float] = None
+    pitch: Optional[float] = None
+    roll: Optional[float] = None
+    max_yaw: Optional[float] = None
+    passed: bool
+
+
+class QualityCheckResult(BaseModel):
+    passed: bool
+    blur: BlurCheck
+    brightness: BrightnessCheck
+    face_size: FaceSizeCheck | dict = None
+    face_pose: FacePoseCheck | dict = None
+
+
+class EnrollInitResponse(BaseModel):
+    success: bool
+    session_token: Optional[str] = None
+    quality: Optional[QualityCheckResult] = None
+    passive_liveness: Optional[LivenessResult] = None
+    message: str
+
+
+class EnrollCompleteResponse(BaseModel):
+    success: bool
+    user_id: str
+    message: str
+    embedding_stored: bool = False
+    liveness: Optional[LivenessResult] = None
+
+
 class VerifyRequest(BaseModel):
     pass  # Only file upload, no JSON body
 

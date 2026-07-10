@@ -6,16 +6,19 @@ import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from app.config import get_settings
-from app.dependencies import get_challenge_service, get_chroma_service, get_mysql_service, get_opencv_service
+from app.dependencies import get_challenge_service, get_chroma_service, get_mysql_service, get_opencv_service, get_image_quality_service
 from app.schemas.verification import (
     ChallengeInitResponse,
+    EnrollInitResponse,
+    EnrollCompleteResponse,
     EnrollResponse,
     LivenessMethod,
     LivenessResult,
+    QualityCheckResult,
     StepVerifyResponse,
     VerifyResponse,
 )
-from app.services import ChallengeService, ChromaService, MySQLService, OpenCVService
+from app.services import ChallengeService, ChromaService, LivenessService, MySQLService, OpenCVService, SessionService, ImageQualityService
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -222,21 +225,26 @@ async def enroll_face(
         logger.error(f"ChromaDB search failed during enrollment: {e}")
         raise HTTPException(status_code=503, detail="Face search service unavailable")
 
-    if search_result and search_result.distance < settings.verification_threshold:
-        logger.warning(
-            f"Anti-fraud: Face for user '{user_id}' matches existing user "
-            f"'{search_result.user_id}' (distance={search_result.distance:.4f})"
-        )
-        return EnrollResponse(
-            success=False,
-            user_id=user_id,
-            message=(
-                f"Face already registered to another user (distance: {search_result.distance:.4f}). "
-                f"Enrollment rejected for anti-fraud."
-            ),
-            embedding_stored=False,
-            liveness=liveness_result,
-        )
+    if search_result and search_result.distance < settings.enrollment_duplicate_threshold:
+        if search_result.user_id == user_id:
+            logger.info(
+                f"Same user '{user_id}' re-enrolling (distance={search_result.distance:.4f}) — allowing update"
+            )
+        else:
+            logger.warning(
+                f"Anti-fraud: Face for user '{user_id}' matches existing user "
+                f"'{search_result.user_id}' (distance={search_result.distance:.4f})"
+            )
+            return EnrollResponse(
+                success=False,
+                user_id=user_id,
+                message=(
+                    f"Face already registered to another user (distance: {search_result.distance:.4f}). "
+                    f"Enrollment rejected for anti-fraud."
+                ),
+                embedding_stored=False,
+                liveness=liveness_result,
+            )
 
     try:
         chroma.add_embedding(user_id, embedding.tolist())
@@ -250,6 +258,219 @@ async def enroll_face(
     return EnrollResponse(
         success=True,
         user_id=user_id,
+        message="Face enrolled successfully",
+        embedding_stored=True,
+        liveness=liveness_result,
+    )
+
+
+@router.post(
+    "/enroll/init",
+    response_model=EnrollInitResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Step 1: Initialize enrollment with quality + passive liveness check",
+    description="""
+    Two-step enrollment: Step 1.
+    
+    Upload the face image for quality assessment and passive liveness check.
+    If both pass, returns a session_token to be used in /enroll/complete.
+    
+    **Quality checks:** blur, brightness, face size, face pose
+    **Passive liveness:** texture/blur/color analysis
+    """,
+)
+async def enroll_init(
+    user_id: str = Form(..., description="Existing user ID from MySQL"),
+    face_image: UploadFile = File(..., description="Face image (JPEG/PNG)"),
+    mysql: MySQLService = Depends(get_mysql_service),
+    quality: ImageQualityService = Depends(get_image_quality_service),
+):
+    if not mysql.user_exists(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User '{user_id}' not found. Create user first via POST /api/v1/users",
+        )
+
+    try:
+        image_bytes = await face_image.read()
+        if not image_bytes:
+            raise HTTPException(status_code=400, detail="Empty image file")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read image: {e}")
+
+    nparr = np.frombuffer(image_bytes, np.uint8)
+    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if image is None:
+        raise HTTPException(status_code=400, detail="Failed to decode image")
+
+    quality_result = quality.assess(image)
+
+    if not quality_result["passed"]:
+        failed_checks = [
+            k for k in ("blur", "brightness", "face_size", "face_pose")
+            if isinstance(quality_result.get(k), dict) and not quality_result[k].get("passed", False)
+        ]
+        logger.warning(f"Quality check failed for user '{user_id}': {', '.join(failed_checks)}")
+        return EnrollInitResponse(
+            success=False,
+            quality=QualityCheckResult(**quality_result),
+            message=f"Image quality insufficient: {', '.join(failed_checks)}",
+        )
+
+    passive = LivenessService.assess_passive(image)
+
+    if not passive["passed"]:
+        logger.warning(f"Passive liveness failed during init for user '{user_id}'")
+        return EnrollInitResponse(
+            success=False,
+            quality=QualityCheckResult(**quality_result),
+            passive_liveness=LivenessResult(
+                passed=False,
+                passive_score=passive["passive_score"],
+                blur_score=passive["blur_score"],
+                color_score=passive["color_score"],
+                blink_detected=False,
+                frame_diversity_ok=False,
+                method=LivenessMethod.frame_burst,
+                message="Passive liveness check failed",
+            ),
+            message="Passive liveness check failed",
+        )
+
+    passive_result = {
+        "passive_score": passive["passive_score"],
+        "blur_score": passive["blur_score"],
+        "color_score": passive["color_score"],
+        "passed": passive["passed"],
+    }
+    session_token = SessionService.create_session(user_id, image_bytes, quality_result, passive_result)
+
+    return EnrollInitResponse(
+        success=True,
+        session_token=session_token,
+        quality=QualityCheckResult(**quality_result),
+        passive_liveness=LivenessResult(
+            passed=True,
+            passive_score=passive["passive_score"],
+            blur_score=passive["blur_score"],
+            color_score=passive["color_score"],
+            blink_detected=False,
+            frame_diversity_ok=False,
+            method=LivenessMethod.frame_burst,
+            message="",
+        ),
+        message="Image quality and passive liveness passed. Proceed to capture liveness frames.",
+    )
+
+
+@router.post(
+    "/enroll/complete",
+    response_model=EnrollCompleteResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Step 2: Complete enrollment with liveness verification",
+    description="""
+    Two-step enrollment: Step 2.
+    
+    Use the session_token from /enroll/init to complete enrollment.
+    Send liveness frames for active liveness (blink detection + frame diversity).
+    On success, the face embedding is extracted and stored.
+    
+    **Liveness Methods:**
+    - `frame_burst` (default): Send liveness_frames for blink + diversity check
+    - `challenge`: Provide challenge_id from /challenge/init (requires completing challenge steps first)
+    """,
+)
+async def enroll_complete(
+    session_token: str = Form(..., description="Session token from /enroll/init"),
+    liveness_frames: list[UploadFile] = File(default=[], description="Frames for liveness check (required for frame_burst)"),
+    method: LivenessMethod = Form(default=LivenessMethod.frame_burst, description="Liveness method"),
+    challenge_id: Optional[str] = Form(None, description="Challenge ID (required if method=challenge)"),
+    chroma: ChromaService = Depends(get_chroma_service),
+    opencv: OpenCVService = Depends(get_opencv_service),
+    mysql: MySQLService = Depends(get_mysql_service),
+):
+    session = SessionService.get_session(session_token)
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired session token. Re-initiate enrollment via /enroll/init",
+        )
+
+    try:
+        if method == LivenessMethod.challenge:
+            if not challenge_id:
+                raise HTTPException(status_code=400, detail="challenge_id is required when method=challenge")
+            liveness_result = await _perform_challenge_liveness_check(
+                session.face_image_bytes, challenge_id, liveness_frames
+            )
+        else:
+            frames_bytes = []
+            for f in liveness_frames:
+                fb = await f.read()
+                if fb:
+                    frames_bytes.append(fb)
+            liveness_result = await _perform_liveness_check(session.face_image_bytes, frames_bytes)
+    except HTTPException:
+        SessionService.delete_session(session_token)
+        raise
+
+    if not liveness_result.passed:
+        logger.warning(f"Liveness check failed during enrollment for user '{session.user_id}': {liveness_result.message}")
+        SessionService.delete_session(session_token)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=liveness_result.message,
+        )
+
+    try:
+        embedding = opencv.extract_embedding_from_bytes(session.face_image_bytes)
+    except ValueError as e:
+        SessionService.delete_session(session_token)
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        logger.error(f"Embedding extraction failed: {e}")
+        SessionService.delete_session(session_token)
+        raise HTTPException(status_code=500, detail="Face processing failed")
+
+    try:
+        search_result = chroma.search_embedding(embedding.tolist())
+    except Exception as e:
+        logger.error(f"ChromaDB search failed during enrollment: {e}")
+        SessionService.delete_session(session_token)
+        raise HTTPException(status_code=503, detail="Face search service unavailable")
+
+    if search_result and search_result.distance < settings.enrollment_duplicate_threshold:
+        if search_result.user_id != session.user_id:
+            logger.warning(
+                f"Anti-fraud: Face for user '{session.user_id}' matches existing user "
+                f"'{search_result.user_id}' (distance={search_result.distance:.4f})"
+            )
+            SessionService.delete_session(session_token)
+            return EnrollCompleteResponse(
+                success=False,
+                user_id=session.user_id,
+                message=(
+                    f"Face already registered to another user (distance: {search_result.distance:.4f}). "
+                    f"Enrollment rejected for anti-fraud."
+                ),
+                embedding_stored=False,
+                liveness=liveness_result,
+            )
+
+    try:
+        chroma.add_embedding(session.user_id, embedding.tolist())
+    except Exception as e:
+        logger.error(f"Failed to store embedding: {e}")
+        SessionService.delete_session(session_token)
+        raise HTTPException(status_code=500, detail="Failed to store face embedding")
+
+    mysql.set_face_enrolled(session.user_id, enrolled=True)
+    SessionService.delete_session(session_token)
+
+    logger.info(f"Face enrolled successfully for user: {session.user_id}")
+    return EnrollCompleteResponse(
+        success=True,
+        user_id=session.user_id,
         message="Face enrolled successfully",
         embedding_stored=True,
         liveness=liveness_result,

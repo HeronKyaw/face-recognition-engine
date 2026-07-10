@@ -64,6 +64,58 @@ export interface StepVerifyResponse {
   message: string;
 }
 
+export interface BlurCheck {
+  score: number;
+  threshold: number;
+  passed: boolean;
+}
+
+export interface BrightnessCheck {
+  mean_luminance: number;
+  range: [number, number];
+  passed: boolean;
+}
+
+export interface FaceSizeCheck {
+  width: number;
+  height: number;
+  min_dimension: number;
+  threshold: number;
+  passed: boolean;
+}
+
+export interface FacePoseCheck {
+  yaw: number | null;
+  pitch: number | null;
+  roll: number | null;
+  max_yaw: number | null;
+  passed: boolean;
+}
+
+export interface QualityCheckResult {
+  passed: boolean;
+  blur: BlurCheck;
+  brightness: BrightnessCheck;
+  face_size: FaceSizeCheck | { passed: boolean; reason?: string };
+  face_pose: FacePoseCheck | { passed: boolean; reason?: string };
+}
+
+export interface EnrollInitResponse {
+  success: boolean;
+  session_token?: string;
+  quality?: QualityCheckResult;
+  passive_liveness?: LivenessResult;
+  message: string;
+}
+
+export interface EnrollCompleteResponse {
+  success: boolean;
+  user_id: string;
+  message: string;
+  embedding_stored: boolean;
+  liveness?: LivenessResult;
+}
+
 export interface EnrollResponse {
   success: boolean;
   user_id: string;
@@ -172,6 +224,29 @@ export const api = {
       form.append("liveness_frames", f);
     }
     return request<EnrollResponse>("/api/v1/enroll", { method: "POST", body: form });
+  },
+
+  enrollInit: async (userId: string, file: File) => {
+    const form = new FormData();
+    form.append("user_id", userId);
+    form.append("face_image", file);
+    return request<EnrollInitResponse>("/api/v1/enroll/init", { method: "POST", body: form });
+  },
+
+  enrollComplete: async (
+    sessionToken: string,
+    livenessFrames: File[] = [],
+    method: LivenessMethod = "frame_burst",
+    challengeId?: string
+  ) => {
+    const form = new FormData();
+    form.append("session_token", sessionToken);
+    form.append("method", method);
+    if (challengeId) form.append("challenge_id", challengeId);
+    for (const f of livenessFrames) {
+      form.append("liveness_frames", f);
+    }
+    return request<EnrollCompleteResponse>("/api/v1/enroll/complete", { method: "POST", body: form });
   },
 
   verify: async (
