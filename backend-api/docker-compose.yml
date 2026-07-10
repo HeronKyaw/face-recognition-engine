@@ -17,7 +17,7 @@ services:
       MYSQL_MAX_OVERFLOW: 20
       CHROMA_HOST: host.docker.internal
       CHROMA_PORT: 8000
-      CHROMA_COLLECTION: face_embeddings
+      CHROMA_COLLECTION_NAME: face_embeddings
       VERIFICATION_THRESHOLD: 0.3
       MODEL_PATH: models/sface.onnx
     ports:

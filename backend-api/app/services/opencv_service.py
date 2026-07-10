@@ -84,7 +84,7 @@ class OpenCVService:
             cls._face_mesh = mp.solutions.face_mesh.FaceMesh(
                 static_image_mode=True,
                 max_num_faces=1,
-                min_detection_confidence=0.5,
+                min_detection_confidence=settings.mediapipe_detection_confidence,
             )
         else:
             model_dir = Path(__file__).resolve().parent.parent.parent / "models"
@@ -104,7 +104,7 @@ class OpenCVService:
                     base_options=mp.tasks.BaseOptions(model_asset_path=str(model_path)),
                     running_mode=vision.RunningMode.IMAGE,
                     num_faces=1,
-                    min_face_detection_confidence=0.5,
+                    min_face_detection_confidence=settings.mediapipe_detection_confidence,
                 )
             )
         logger.info("MediaPipe Face Landmarker initialized")
@@ -250,12 +250,30 @@ class OpenCVService:
         return {"yaw": float(y), "pitch": float(x), "roll": float(z)}
 
     @classmethod
+    def _enhance_lowlight(cls, image: np.ndarray) -> np.ndarray:
+        if not settings.enable_lowlight_enhancement:
+            return image
+        lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        if np.mean(l) > settings.lowlight_luminance_threshold:
+            return image
+        clahe = cv2.createCLAHE(
+            clipLimit=settings.clahe_clip_limit,
+            tileGridSize=(settings.clahe_grid_size, settings.clahe_grid_size)
+        )
+        l_enhanced = clahe.apply(l)
+        enhanced = cv2.cvtColor(cv2.merge([l_enhanced, a, b]), cv2.COLOR_LAB2BGR)
+        if settings.enhancement_sharpen:
+            blur = cv2.GaussianBlur(enhanced, (0, 0), 1.0)
+            enhanced = cv2.addWeighted(enhanced, 1.5, blur, -0.5, 0)
+        return enhanced
+
+    @classmethod
     def _crop_and_resize(cls, image: np.ndarray, bbox: Tuple[int, int, int, int]) -> np.ndarray:
         """Crop face region and resize to 112x112.
 
-        OpenCV 5.x's alignCrop has a non-deterministic bug producing
-        inconsistent alignments and sometimes blank crops, so we use
-        a direct crop + resize instead for reliability.
+        alignCrop was unreliable in earlier OpenCV 5.x pre-releases.
+        Using direct crop + resize for now; re-evaluate with OpenCV 5.0.0+.
         """
         x, y, w, h = bbox
         face = image[y:y + h, x:x + w]
@@ -272,6 +290,8 @@ class OpenCVService:
 
         if len(image.shape) != 3 or image.shape[2] != 3:
             raise ValueError(f"Expected 3-channel BGR image, got shape {image.shape}")
+
+        image = cls._enhance_lowlight(image)
 
         try:
             if not skip_detection:
