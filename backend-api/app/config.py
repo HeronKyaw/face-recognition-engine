@@ -36,12 +36,12 @@ class Settings(BaseSettings):
 
     # Distance threshold for face verification (cosine distance)
     # SFace default: 0.363 cosine similarity → 0.637 distance
-    # Conservative for KYC: 0.3 distance (tighter security given observed genuine distance ~0.006)
     verification_threshold: float = float(os.getenv("VERIFICATION_THRESHOLD", "0.3"))
 
-    # Stricter distance threshold for enrollment duplicate detection (anti-fraud)
-    # Uses a tighter threshold than verification to avoid false-positive rejections
-    enrollment_duplicate_threshold: float = float(os.getenv("ENROLLMENT_DUPLICATE_THRESHOLD", "0.15"))
+    # Distance threshold for enrollment duplicate detection (anti-fraud)
+    # Blocks re-enrollment of the same face under a different user ID.
+    # Tuned to catch same-person variance (~0.26) while allowing lookalikes.
+    enrollment_duplicate_threshold: float = float(os.getenv("ENROLLMENT_DUPLICATE_THRESHOLD", "0.4"))
 
     # Liveness Detection Configuration
     # Passive liveness: texture/blur/color analysis on single image (0-1, higher = more likely live)

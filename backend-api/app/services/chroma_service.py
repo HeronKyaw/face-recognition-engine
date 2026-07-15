@@ -140,7 +140,7 @@ class ChromaService:
         cls._client = None
         cls._collection = None
         cls.initialize()
-
+    
     @classmethod
     def add_embedding(cls, user_id: str, embedding: List[float]) -> bool:
         """
@@ -153,7 +153,7 @@ class ChromaService:
         
         Args:
             user_id: Unique identifier (used as ChromaDB document ID)
-            embedding: 512-dim normalized face embedding from ArcFace
+            embedding: 128-dim normalized face embedding from SFace
             
         Returns:
             True if added/updated successfully
@@ -168,16 +168,6 @@ class ChromaService:
             )
             logger.info(f"Added/updated embedding for user: {user_id}")
             return True
-        except ChromaNotFoundError:
-            logger.warning("Collection not found, reinitializing and retrying...")
-            cls._reinitialize()
-            cls._collection.upsert(
-                ids=[user_id],
-                embeddings=[embedding],
-                metadatas=[{"user_id": user_id}],
-            )
-            logger.info(f"Added/updated embedding for user: {user_id}")
-            return True
         except Exception as e:
             logger.error(f"Failed to add embedding for user {user_id}: {e}")
             raise
@@ -185,13 +175,12 @@ class ChromaService:
     @classmethod
     def search_embedding(cls, embedding: List[float], n_results: int = 1) -> Optional[SearchResult]:
         """
-        Perform 1:N cosine similarity search for the nearest face match.
-        
-        Why n_results=1?
-        - Verification only needs the single best match
-        - Top-1 is sufficient for 1:1 verification (user claims identity)
-        - For identification (1:N without claim), increase n_results
-        
+        Search for the nearest embedding in the vector index (1:N identification).
+
+        Args:
+            embedding: Query embedding vector (128-dim, L2-normalized)
+            n_results: Number of nearest neighbors to return (default 1)
+
         Returns:
             SearchResult with user_id, distance, and embedding if found, None otherwise
         """
@@ -229,9 +218,9 @@ class ChromaService:
                        f"distance={best_distance:.6f}, "
                        f"query_first5={query_np[:5].tolist()}, "
                        f"stored_first5={best_np[:5].tolist()}")
-
+            
             if best_distance < 0.05:
-                logger.warning(f"Suspiciously low distance ({best_distance:.6f}) — "
+                logger.warning(f"Suspiciously low distance ({best_distance:.6f}) -- "
                               f"embeddings nearly identical, SFace model may be broken")
             
             return SearchResult(
@@ -331,11 +320,9 @@ class ChromaService:
     
     @classmethod
     def health_check(cls) -> bool:
-        """Health check for readiness/liveness probes."""
         try:
             cls._ensure_initialized()
-            cls._client.list_collections()
-            return True
+            return cls._collection.count() >= 0
         except Exception as e:
             logger.error(f"ChromaDB health check failed: {e}")
             return False

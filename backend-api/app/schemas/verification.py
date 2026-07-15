@@ -7,6 +7,7 @@ from enum import Enum
 class LivenessMethod(str, Enum):
     frame_burst = "frame_burst"
     challenge = "challenge"
+    client = "client"
 
 
 class EnrollRequest(BaseModel):

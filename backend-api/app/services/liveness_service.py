@@ -152,6 +152,7 @@ class LivenessService:
         blur = cls.assess_blur(image)
         color = cls.assess_color_diversity(image)
         combined = 0.5 * blur + 0.5 * color
+        logger.debug(f"Passive liveness: blur={blur:.4f}, color={color:.4f}, combined={combined:.4f}, threshold={settings.liveness_passive_threshold}")
         return {
             "passive_score": combined,
             "blur_score": blur,
@@ -261,38 +262,22 @@ class LivenessService:
         return target_ear < ear_threshold and other_ear >= ear_threshold
 
     @classmethod
-    def detect_head_nod(cls, landmarks, image: np.ndarray, direction: str, pitch_threshold: float = 15.0) -> bool:
-        pose = OpenCVService.estimate_head_pose(image, landmarks)
-        if pose is None:
-            return False
-        if direction == "up":
-            return pose["pitch"] < -pitch_threshold
-        elif direction == "down":
-            return pose["pitch"] > pitch_threshold
-        return False
-
-    @classmethod
     def verify_step_action(cls, action: str, params: dict, frames: list[np.ndarray]) -> bool:
         if not frames:
             return False
 
-        if action == "blink_count":
+        if action in ("blink", "blink_count"):
             count = cls.count_blinks_in_frames(frames)
             expected = params.get("count", 1)
             return count >= expected
 
-        if action in ("look_straight", "turn_left", "turn_right", "smile", "mouth_open",
-                       "wink_left", "wink_right", "nod_up", "nod_down"):
+        if action in ("look_straight", "turn_left", "turn_right", "smile", "mouth_open"):
             detector_map = {
                 "look_straight": lambda lm, img: cls.detect_look_straight(lm, img),
                 "turn_left": lambda lm, img: cls.detect_head_turn(lm, img, "left"),
                 "turn_right": lambda lm, img: cls.detect_head_turn(lm, img, "right"),
                 "smile": lambda lm, img: cls.detect_smile(lm, img.shape[1], img.shape[0]),
                 "mouth_open": lambda lm, img: cls.detect_mouth_open(lm, img.shape[1], img.shape[0]),
-                "wink_left": lambda lm, img: cls.detect_wink(lm, img.shape[1], img.shape[0], "left"),
-                "wink_right": lambda lm, img: cls.detect_wink(lm, img.shape[1], img.shape[0], "right"),
-                "nod_up": lambda lm, img: cls.detect_head_nod(lm, img, "up"),
-                "nod_down": lambda lm, img: cls.detect_head_nod(lm, img, "down"),
             }
             detector = detector_map.get(action)
             if detector is None:

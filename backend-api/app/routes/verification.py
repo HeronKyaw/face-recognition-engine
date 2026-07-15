@@ -29,8 +29,21 @@ router = APIRouter(prefix="/api/v1", tags=["Face Verification"])
 async def _perform_liveness_check(
     image_bytes: bytes,
     frames_bytes: list[bytes],
+    method: LivenessMethod = LivenessMethod.frame_burst,
 ) -> LivenessResult:
     from app.services.liveness_service import LivenessService as LS
+
+    if method == LivenessMethod.client:
+        return LivenessResult(
+            passed=True,
+            passive_score=0.0,
+            blur_score=0.0,
+            color_score=0.0,
+            blink_detected=False,
+            frame_diversity_ok=False,
+            method=LivenessMethod.client,
+            message="Client-side liveness — server check skipped",
+        )
 
     nparr = np.frombuffer(image_bytes, np.uint8)
     image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -202,7 +215,7 @@ async def enroll_face(
             raise HTTPException(status_code=400, detail="challenge_id is required when method=challenge")
         liveness_result = await _perform_challenge_liveness_check(image_bytes, challenge_id, liveness_frames)
     else:
-        liveness_result = await _perform_liveness_check(image_bytes, frames_bytes)
+        liveness_result = await _perform_liveness_check(image_bytes, frames_bytes, method)
 
     if not liveness_result.passed:
         logger.warning(f"Liveness check failed during enrollment for user '{user_id}': {liveness_result.message}")
@@ -282,6 +295,7 @@ async def enroll_face(
 async def enroll_init(
     user_id: str = Form(..., description="Existing user ID from MySQL"),
     face_image: UploadFile = File(..., description="Face image (JPEG/PNG)"),
+    method: LivenessMethod = Form(default=LivenessMethod.frame_burst, description="Liveness method"),
     mysql: MySQLService = Depends(get_mysql_service),
     quality: ImageQualityService = Depends(get_image_quality_service),
 ):
@@ -315,6 +329,31 @@ async def enroll_init(
             success=False,
             quality=QualityCheckResult(**quality_result),
             message=f"Image quality insufficient: {', '.join(failed_checks)}",
+        )
+
+    if method == LivenessMethod.client:
+        passive_result = {
+            "passive_score": 0.0,
+            "blur_score": 0.0,
+            "color_score": 0.0,
+            "passed": True,
+        }
+        session_token = SessionService.create_session(user_id, image_bytes, quality_result, passive_result)
+        return EnrollInitResponse(
+            success=True,
+            session_token=session_token,
+            quality=QualityCheckResult(**quality_result),
+            passive_liveness=LivenessResult(
+                passed=True,
+                passive_score=0.0,
+                blur_score=0.0,
+                color_score=0.0,
+                blink_detected=False,
+                frame_diversity_ok=False,
+                method=LivenessMethod.client,
+                message="Client-side liveness — server passive check skipped",
+            ),
+            message="Image quality passed. Client-side liveness in use.",
         )
 
     passive = LivenessService.assess_passive(image)
@@ -409,7 +448,7 @@ async def enroll_complete(
                 fb = await f.read()
                 if fb:
                     frames_bytes.append(fb)
-            liveness_result = await _perform_liveness_check(session.face_image_bytes, frames_bytes)
+            liveness_result = await _perform_liveness_check(session.face_image_bytes, frames_bytes, method)
     except HTTPException:
         SessionService.delete_session(session_token)
         raise
@@ -524,7 +563,7 @@ async def verify_face(
             raise HTTPException(status_code=400, detail="challenge_id is required when method=challenge")
         liveness_result = await _perform_challenge_liveness_check(image_bytes, challenge_id, liveness_frames)
     else:
-        liveness_result = await _perform_liveness_check(image_bytes, frames_bytes)
+        liveness_result = await _perform_liveness_check(image_bytes, frames_bytes, method)
 
     if not liveness_result.passed:
         logger.warning(f"Liveness check failed during verification: {liveness_result.message}")

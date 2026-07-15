@@ -28,7 +28,7 @@ export interface UserDeleteResponse {
   chroma_deleted: boolean;
 }
 
-export type LivenessMethod = "frame_burst" | "challenge";
+export type LivenessMethod = "frame_burst" | "challenge" | "client";
 
 export interface LivenessResult {
   passed: boolean;
@@ -41,6 +41,20 @@ export interface LivenessResult {
   challenge_verified?: boolean;
   challenge_expected_count?: number;
   challenge_actual_count?: number;
+  message: string;
+}
+
+export interface ClientLivenessResult {
+  passed: boolean;
+  passive_score: number;
+  blur_score: number;
+  color_score: number;
+  blink_detected: boolean;
+  blinks_count: number;
+  frame_diversity_ok: boolean;
+  frame_diversity: number;
+  method: "client";
+  face_detected: boolean;
   message: string;
 }
 
@@ -226,10 +240,11 @@ export const api = {
     return request<EnrollResponse>("/api/v1/enroll", { method: "POST", body: form });
   },
 
-  enrollInit: async (userId: string, file: File) => {
+  enrollInit: async (userId: string, file: File, method?: LivenessMethod) => {
     const form = new FormData();
     form.append("user_id", userId);
     form.append("face_image", file);
+    if (method) form.append("method", method);
     return request<EnrollInitResponse>("/api/v1/enroll/init", { method: "POST", body: form });
   },
 

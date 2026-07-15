@@ -15,10 +15,7 @@ ACTION_POOL = [
     "smile",
     "turn_left",
     "turn_right",
-    "wink_left",
-    "wink_right",
-    "nod_up",
-    "nod_down",
+    "blink",
 ]
 
 
@@ -53,9 +50,9 @@ class ChallengeService:
         selected = pool[:num_steps]
         for action in selected:
             params = {}
-            if action == "blink_count":
+            if action == "blink":
                 params["count"] = random.randint(settings.challenge_min_blinks, settings.challenge_max_blinks)
-            elif action in ("turn_left", "turn_right", "nod_up", "nod_down", "wink_left", "wink_right"):
+            elif action in ("turn_left", "turn_right"):
                 params["direction"] = action.split("_")[-1]
             steps.append({"action": action, "params": params})
 
@@ -82,14 +79,8 @@ class ChallengeService:
             if "count" in sp["params"]:
                 sp["instruction"] = f"Blink {sp['params']['count']} times"
             elif "direction" in sp["params"]:
-                action_prefix = sp["action"].split("_")[0]
                 direction = sp["params"]["direction"]
-                if action_prefix == "turn":
-                    sp["instruction"] = f"Turn your head to the {direction}"
-                elif action_prefix == "nod":
-                    sp["instruction"] = f"Nod your head {direction}"
-                elif action_prefix == "wink":
-                    sp["instruction"] = f"Wink your {direction} eye"
+                sp["instruction"] = f"Turn your head to the {direction}"
             elif sp["action"] == "look_straight":
                 sp["instruction"] = "Look straight at the camera"
             elif sp["action"] == "smile":

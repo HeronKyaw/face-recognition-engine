@@ -2,6 +2,7 @@ import logging
 import urllib.request
 import numpy as np
 import cv2
+import math
 from typing import Optional, Tuple
 from pathlib import Path
 
@@ -177,13 +178,6 @@ class OpenCVService:
         return ((x, y, x2 - x, y2 - y), landmarks)
 
     @classmethod
-    def _get_face_bbox(cls, image: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
-        result = cls._detect_face(image)
-        if result is None:
-            return None
-        return result[0]
-
-    @classmethod
     def get_face_landmarks(cls, image: np.ndarray) -> Optional[list]:
         """Returns MediaPipe face landmarks for the first detected face, or None."""
         result = cls._detect_face(image)
@@ -268,18 +262,37 @@ class OpenCVService:
             enhanced = cv2.addWeighted(enhanced, 1.5, blur, -0.5, 0)
         return enhanced
 
-    @classmethod
-    def _crop_and_resize(cls, image: np.ndarray, bbox: Tuple[int, int, int, int]) -> np.ndarray:
-        """Crop face region and resize to 112x112.
+    LEFT_EYE_OUTER = 33
+    LEFT_EYE_INNER = 133
+    RIGHT_EYE_INNER = 362
+    RIGHT_EYE_OUTER = 263
 
-        alignCrop was unreliable in earlier OpenCV 5.x pre-releases.
-        Using direct crop + resize for now; re-evaluate with OpenCV 5.0.0+.
-        """
-        x, y, w, h = bbox
-        face = image[y:y + h, x:x + w]
-        if face.size == 0:
-            raise ValueError("Empty face crop from bbox")
-        return cv2.resize(face, (112, 112))
+    @classmethod
+    def _align_face(cls, image: np.ndarray, bbox: Tuple[int, int, int, int],
+                    landmarks: list, output_size: int = 112) -> np.ndarray:
+        h, w = image.shape[:2]
+
+        def lm_point(idx):
+            return np.array([landmarks[idx].x * w, landmarks[idx].y * h])
+
+        left_eye = (lm_point(cls.LEFT_EYE_OUTER) + lm_point(cls.LEFT_EYE_INNER)) / 2.0
+        right_eye = (lm_point(cls.RIGHT_EYE_INNER) + lm_point(cls.RIGHT_EYE_OUTER)) / 2.0
+
+        dx = right_eye[0] - left_eye[0]
+        dy = right_eye[1] - left_eye[1]
+        angle = math.degrees(math.atan2(dy, dx))
+        dist = math.hypot(dx, dy)
+        target_dist = output_size * 0.35
+        scale = target_dist / dist if dist > 0 else 1.0
+        center = (left_eye + right_eye) / 2.0
+
+        cos_a = scale * math.cos(math.radians(angle))
+        sin_a = scale * math.sin(math.radians(angle))
+        tx = output_size / 2.0 - cos_a * center[0] + sin_a * center[1]
+        ty = output_size / 2.0 - sin_a * center[0] - cos_a * center[1]
+        tform = np.array([[cos_a, -sin_a, tx], [sin_a, cos_a, ty]], dtype=np.float32)
+
+        return cv2.warpAffine(image, tform, (output_size, output_size))
 
     @classmethod
     def extract_embedding(cls, image: np.ndarray, skip_detection: bool = False) -> np.ndarray:
@@ -295,10 +308,11 @@ class OpenCVService:
 
         try:
             if not skip_detection:
-                bbox = cls._get_face_bbox(image)
-                if bbox is None:
+                detection = cls._detect_face(image)
+                if detection is None:
                     raise ValueError("No face detected in image")
-                aligned_face = cls._crop_and_resize(image, bbox)
+                bbox, landmarks = detection
+                aligned_face = cls._align_face(image, bbox, landmarks)
             else:
                 aligned_face = image
 
