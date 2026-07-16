@@ -154,7 +154,7 @@ export default function UserDetailPage() {
           {user.face_enrolled && (
             <button
               onClick={async () => {
-                if (!confirm(`Reset face enrollment for "${user.name}"?`)) return;
+                if (!confirm(`Reset all face data for "${user.name}"?`)) return;
                 setError("");
                 setMessage("");
                 try {
@@ -167,13 +167,63 @@ export default function UserDetailPage() {
               }}
               className="px-5 py-2.5 rounded-lg text-sm font-medium border border-amber-200 text-amber-700 hover:bg-amber-50 transition-colors"
             >
-              Reset Face
+              Reset All
             </button>
           )}
           <button onClick={handleDelete} className="px-5 py-2.5 rounded-lg text-sm font-medium border border-red-200 text-red-600 hover:bg-red-50 transition-colors">
             Delete
           </button>
         </div>
+      </div>
+
+      {/* Face Variants */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-slate-800">Face Variants ({user.embeddings.length})</h2>
+          {user.face_enrolled && (
+            <a
+              href={`/enroll?userId=${user.user_id}`}
+              className="text-xs font-medium text-indigo-600 hover:text-indigo-700 border border-indigo-200 rounded-lg px-3 py-1.5 hover:bg-indigo-50 transition-colors"
+            >
+              + Add Variant
+            </a>
+          )}
+        </div>
+        {user.embeddings.length === 0 ? (
+          <p className="text-xs text-slate-400 text-center py-6">No face embeddings enrolled.</p>
+        ) : (
+          <ul className="space-y-2">
+            {user.embeddings.map((emb) => (
+              <li key={emb.embedding_id} className="flex items-center justify-between bg-slate-50 rounded-lg px-3.5 py-2.5 text-sm">
+                <div className="flex items-center gap-3">
+                  <span className={`inline-block w-2 h-2 rounded-full ${emb.glasses_detected ? "bg-amber-400" : "bg-emerald-400"}`} />
+                  <span className="text-slate-700 font-mono text-xs">{emb.embedding_id.split("_").pop()}</span>
+                  <span className="text-xs text-slate-400">{emb.glasses_detected ? "with glasses" : "bare-faced"}</span>
+                  {emb.created_at && (
+                    <span className="text-xs text-slate-400">{new Date(emb.created_at).toLocaleString()}</span>
+                  )}
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!confirm("Remove this variant?")) return;
+                    setError("");
+                    setMessage("");
+                    try {
+                      await api.deleteUserEmbedding(user.user_id, emb.embedding_id);
+                      setMessage("Variant removed");
+                      load();
+                    } catch (err: unknown) {
+                      setError(err instanceof Error ? err.message : "Failed to delete variant");
+                    }
+                  }}
+                  className="text-xs text-red-500 hover:text-red-700 font-medium ml-3"
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

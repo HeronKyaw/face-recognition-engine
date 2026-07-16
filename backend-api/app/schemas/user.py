@@ -39,12 +39,19 @@ class UserUpdate(BaseModel):
     )
 
 
+class EmbeddingInfo(BaseModel):
+    embedding_id: str
+    glasses_detected: bool = False
+    created_at: str = ""
+
+
 class UserResponse(BaseModel):
     user_id: str
     name: str
     metadata: Optional[str] = None
     face_enrolled: bool = False
     created_at: datetime
+    embeddings: list[EmbeddingInfo] = []
     
     model_config = ConfigDict(
         from_attributes=True,
@@ -164,6 +171,24 @@ class ResetFaceResponse(BaseModel):
                 "user_id": "user_12345",
                 "message": "Face enrollment reset for user user_12345",
                 "embedding_removed": True,
+            }
+        }
+    )
+
+
+class DeleteEmbeddingResponse(BaseModel):
+    success: bool
+    user_id: str
+    embedding_id: str
+    message: str
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": True,
+                "user_id": "user_12345",
+                "embedding_id": "user_12345_abc123def456",
+                "message": "Embedding deleted successfully",
             }
         }
     )

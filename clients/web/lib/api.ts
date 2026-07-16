@@ -6,12 +6,26 @@ export interface HealthResponse {
   version: string;
 }
 
+export interface EmbeddingInfo {
+  embedding_id: string;
+  glasses_detected: boolean;
+  created_at: string;
+}
+
 export interface UserResponse {
   user_id: string;
   name: string;
   metadata?: string;
   face_enrolled: boolean;
   created_at: string;
+  embeddings: EmbeddingInfo[];
+}
+
+export interface DeleteEmbeddingResponse {
+  success: boolean;
+  user_id: string;
+  embedding_id: string;
+  message: string;
 }
 
 export interface UserListResponse {
@@ -300,4 +314,7 @@ export const api = {
 
   resetFace: (userId: string) =>
     request<ResetFaceResponse>(`/api/v1/users/${userId}/face`, { method: "DELETE" }),
+
+  deleteUserEmbedding: (userId: string, embeddingId: string) =>
+    request<DeleteEmbeddingResponse>(`/api/v1/users/${userId}/embeddings/${embeddingId}`, { method: "DELETE" }),
 };

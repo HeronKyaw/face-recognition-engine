@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.dependencies import get_chroma_service, get_mysql_service
 from app.schemas.user import (
+    DeleteEmbeddingResponse,
     ResetEnrollmentsResponse,
     ResetFaceResponse,
     UserCreate,
@@ -79,11 +80,18 @@ async def list_users(
 async def get_user(
     user_id: str,
     mysql: MySQLService = Depends(get_mysql_service),
+    chroma: ChromaService = Depends(get_chroma_service),
 ):
     user = mysql.get_user(user_id)
     if not user:
         raise HTTPException(status_code=404, detail=f"User '{user_id}' not found")
-    return user
+    try:
+        embeddings = chroma.get_user_embeddings(user_id)
+    except Exception:
+        embeddings = []
+    user_dict = UserResponse.model_validate(user).model_dump()
+    user_dict["embeddings"] = embeddings
+    return user_dict
 
 
 @router.put(
@@ -187,6 +195,34 @@ async def reset_user_face(
         embedding_removed=embedding_removed,
     )
 
+
+@router.delete(
+    "/users/{user_id}/embeddings/{embedding_id}",
+    response_model=DeleteEmbeddingResponse,
+    summary="Delete a single face embedding variant",
+    description="""
+    Remove a specific face embedding variant (e.g., glasses variant) for a user.
+
+    The user record and other embeddings are preserved.
+    """,
+)
+async def delete_user_embedding(
+    user_id: str,
+    embedding_id: str,
+    chroma: ChromaService = Depends(get_chroma_service),
+):
+    deleted = chroma.delete_single_embedding(embedding_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Embedding '{embedding_id}' not found for user '{user_id}'",
+        )
+    return DeleteEmbeddingResponse(
+        success=True,
+        user_id=user_id,
+        embedding_id=embedding_id,
+        message="Embedding deleted successfully",
+    )
 
 # ==================== Verification Logs ====================
 

@@ -19,6 +19,7 @@ we reject enrollment - prevents one person registering multiple identities.
 """
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Optional, List
 from dataclasses import dataclass
 
@@ -143,7 +144,7 @@ class ChromaService:
         cls.initialize()
     
     @classmethod
-    def add_embedding(cls, user_id: str, embedding: List[float]) -> bool:
+    def add_embedding(cls, user_id: str, embedding: List[float], glasses_detected: bool = False) -> str:
         """
         Add a face embedding to the vector index (supports multiple per user).
         
@@ -154,21 +155,27 @@ class ChromaService:
         Args:
             user_id: User identifier (stored in metadata for search)
             embedding: 128-dim normalized face embedding from SFace
+            glasses_detected: Whether glasses were detected during capture
             
         Returns:
-            True if added successfully
+            The generated embedding_id (for later deletion/reference)
         """
         cls._ensure_initialized()
         
         try:
             embedding_id = f"{user_id}_{uuid.uuid4().hex[:12]}"
+            now = datetime.now(timezone.utc).isoformat()
             cls._collection.add(
                 ids=[embedding_id],
                 embeddings=[embedding],
-                metadatas=[{"user_id": user_id}],
+                metadatas=[{
+                    "user_id": user_id,
+                    "glasses_detected": str(glasses_detected),
+                    "created_at": now,
+                }],
             )
             logger.info(f"Added embedding {embedding_id} for user: {user_id}")
-            return True
+            return embedding_id
         except Exception as e:
             logger.error(f"Failed to add embedding for user {user_id}: {e}")
             raise
@@ -333,6 +340,54 @@ class ChromaService:
             return len(results.get("ids", [])) > 0
         except Exception:
             return False
+
+    @classmethod
+    def get_user_embeddings(cls, user_id: str) -> list[dict]:
+        cls._ensure_initialized()
+        try:
+            results = cls._collection.get(
+                where={"user_id": user_id},
+                include=["metadatas"],
+            )
+            if not results["ids"]:
+                return []
+            embeddings = []
+            for i, eid in enumerate(results["ids"]):
+                meta = results["metadatas"][i] if results["metadatas"] else {}
+                embeddings.append({
+                    "embedding_id": eid,
+                    "user_id": meta.get("user_id", user_id),
+                    "glasses_detected": meta.get("glasses_detected", "False") == "True",
+                    "created_at": meta.get("created_at", ""),
+                })
+            return embeddings
+        except Exception as e:
+            logger.error(f"Failed to get embeddings for user {user_id}: {e}")
+            raise
+
+    @classmethod
+    def get_user_embedding_count(cls, user_id: str) -> int:
+        cls._ensure_initialized()
+        try:
+            results = cls._collection.get(where={"user_id": user_id}, include=[])
+            return len(results.get("ids", []))
+        except Exception:
+            return 0
+
+    @classmethod
+    def delete_single_embedding(cls, embedding_id: str) -> bool:
+        cls._ensure_initialized()
+        try:
+            existing = cls._collection.get(ids=[embedding_id], include=[])
+            if not existing["ids"]:
+                logger.warning(f"Embedding not found: {embedding_id}")
+                return False
+            cls._collection.delete(ids=[embedding_id])
+            logger.info(f"Deleted single embedding: {embedding_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete embedding {embedding_id}: {e}")
+            raise
 
     @classmethod
     def count(cls) -> int:

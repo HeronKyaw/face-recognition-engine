@@ -297,7 +297,8 @@ async def enroll_face(
             )
 
     try:
-        chroma.add_embedding(user_id, embedding.tolist())
+        glasses = occlusion.get("glasses_detected", False)
+        chroma.add_embedding(user_id, embedding.tolist(), glasses_detected=glasses)
     except Exception as e:
         logger.error(f"Failed to store embedding: {e}")
         raise HTTPException(status_code=500, detail="Failed to store face embedding")
@@ -579,7 +580,8 @@ async def enroll_complete(
             )
 
     try:
-        chroma.add_embedding(session.user_id, embedding.tolist())
+        glasses = occlusion.get("glasses_detected", False)
+        chroma.add_embedding(session.user_id, embedding.tolist(), glasses_detected=glasses)
     except Exception as e:
         logger.error(f"Failed to store embedding: {e}")
         SessionService.delete_session(session_token)

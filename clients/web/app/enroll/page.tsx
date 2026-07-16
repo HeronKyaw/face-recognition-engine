@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useState, useRef, useEffect, useCallback } from "react";
-import { api, EnrollInitResponse, EnrollCompleteResponse, EnrollResponse, UserResponse, ChallengeStep, LivenessMethod, ClientLivenessResult } from "@/lib/api";
+import { api, EnrollInitResponse, EnrollCompleteResponse, EnrollResponse, UserResponse, EmbeddingInfo, ChallengeStep, LivenessMethod, ClientLivenessResult } from "@/lib/api";
 import { ClientLivenessService, ClientChallengeStep } from "@/lib/client-liveness";
 
 const LIVENESS_FRAME_COUNT = 10;
@@ -50,8 +51,10 @@ const FACE_CONNECTIONS: [number, number][] = [
 type EnrollState = "idle" | "challenge_init" | "countdown" | "step_capturing" | "step_verifying" | "challenge_complete" | "enrolling" | "init_enrolling" | "complete_enrolling" | "client_analysing" | "done";
 
 export default function EnrollPage() {
+  const searchParams = useSearchParams();
   const [users, setUsers] = useState<UserResponse[]>([]);
-  const [userId, setUserId] = useState("");
+  const [userId, setUserId] = useState(searchParams.get("userId") || "");
+  const [userEmbeddings, setUserEmbeddings] = useState<EmbeddingInfo[]>([]);
   const [result, setResult] = useState<EnrollResponse | EnrollCompleteResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -93,9 +96,14 @@ export default function EnrollPage() {
   useEffect(() => {
     api.listUsers(1, 100).then((r) => {
       setUsers(r.users);
-      if (r.users.length > 0) setUserId(r.users[0].user_id);
+      const preselected = searchParams.get("userId");
+      if (preselected && r.users.some((u) => u.user_id === preselected)) {
+        setUserId(preselected);
+      } else if (r.users.length > 0 && !preselected) {
+        setUserId(r.users[0].user_id);
+      }
     }).catch((e) => setError(e.message));
-  }, []);
+  }, [searchParams]);
 
   const stopCamera = useCallback(() => {
     cancelAnimationFrame(animRef.current);
@@ -119,6 +127,14 @@ export default function EnrollPage() {
     setClientChallengeSteps([]);
     setClientChallengeStepIndex(0);
   }, []);
+
+  useEffect(() => {
+    if (userId) {
+      api.getUser(userId).then((u) => {
+        setUserEmbeddings(u.embeddings || []);
+      }).catch(() => {});
+    }
+  }, [userId]);
 
   useEffect(() => {
     return stopCamera;
@@ -872,6 +888,30 @@ export default function EnrollPage() {
             ))}
           </select>
         </div>
+
+        {userId && userEmbeddings.length > 0 && (
+          <div className={`px-4 py-3 rounded-lg text-sm border ${
+            userEmbeddings.some((e) => e.glasses_detected)
+              ? "bg-amber-50 border-amber-200 text-amber-700"
+              : "bg-indigo-50 border-indigo-200 text-indigo-700"
+          }`}>
+            <div className="flex items-start gap-2">
+              <span>{userEmbeddings.some((e) => e.glasses_detected) ? "!" : "i"}</span>
+              <div>
+                <p className="font-medium">
+                  {userEmbeddings.length === 1 && !userEmbeddings[0].glasses_detected
+                    ? "This user has a bare-face enrollment. Add a glasses variant for better recognition."
+                    : userEmbeddings.some((e) => !e.glasses_detected)
+                    ? "This user already has a bare-face enrollment. You can add more variants below."
+                    : "This user only has glasses variants. Consider adding a bare-face variant for best results."}
+                </p>
+                <p className="text-xs mt-1 opacity-80">
+                  Current variants: {userEmbeddings.map((e) => e.glasses_detected ? "with glasses" : "bare-faced").join(", ")}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {!cameraActive && !result && !error && (
           <div>
