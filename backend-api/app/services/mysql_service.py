@@ -316,24 +316,27 @@ class MySQLService:
         device_id: Optional[str] = None,
         success: bool = True,
         reason: Optional[str] = None,
+        log_type: str = "verification",
+        method: Optional[str] = None,
     ) -> None:
-        """Record a verification attempt in the audit log."""
+        """Record a verification or enrollment attempt in the audit log."""
         query = """
-            INSERT INTO verification_log (user_id, device_id, distance, success, reason)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO verification_log (user_id, device_id, distance, success, reason, log_type, method)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
         """
         with cls.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(query, (user_id, device_id, distance, success, reason))
+            cursor.execute(query, (user_id, device_id, distance, success, reason, log_type, method))
 
     @classmethod
     def get_verification_logs(
         cls,
         user_id: Optional[str] = None,
+        log_type: Optional[str] = None,
         page: int = 1,
         page_size: int = 50,
     ) -> tuple[list[VerificationLogResponse], int]:
-        """Fetch paginated verification logs, optionally filtered by user_id."""
+        """Fetch paginated verification/enrollment logs, optionally filtered by user_id and log_type."""
         if page < 1:
             page = 1
         if page_size < 1 or page_size > 100:
@@ -341,14 +344,21 @@ class MySQLService:
 
         offset = (page - 1) * page_size
         params = []
-        where_clause = ""
+        conditions = []
         if user_id:
-            where_clause = "WHERE user_id = %s"
+            conditions.append("user_id = %s")
             params.append(user_id)
+        if log_type:
+            conditions.append("log_type = %s")
+            params.append(log_type)
+
+        where_clause = ""
+        if conditions:
+            where_clause = "WHERE " + " AND ".join(conditions)
 
         count_query = f"SELECT COUNT(*) as total FROM verification_log {where_clause}"
         data_query = f"""
-            SELECT id, user_id, device_id, distance, success, reason, created_at
+            SELECT id, user_id, device_id, distance, success, reason, log_type, method, created_at
             FROM verification_log {where_clause}
             ORDER BY created_at DESC LIMIT %s OFFSET %s
         """
@@ -371,6 +381,8 @@ class MySQLService:
                     distance=row["distance"],
                     success=bool(row["success"]),
                     reason=row.get("reason"),
+                    log_type=row.get("log_type", "verification"),
+                    method=row.get("method"),
                     created_at=row["created_at"],
                 )
                 for row in rows

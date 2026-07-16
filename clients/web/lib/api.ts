@@ -155,6 +155,8 @@ export interface VerificationLog {
   distance?: number;
   success: boolean;
   reason?: string;
+  log_type: string;
+  method?: string;
   created_at: string;
 }
 
@@ -284,9 +286,10 @@ export const api = {
     return request<VerifyResponse>("/api/v1/verify", { method: "POST", body: form });
   },
 
-  listLogs: (params?: { user_id?: string; page?: number; page_size?: number }) => {
+  listLogs: (params?: { user_id?: string; log_type?: string; page?: number; page_size?: number }) => {
     const q = new URLSearchParams();
     if (params?.user_id) q.set("user_id", params.user_id);
+    if (params?.log_type) q.set("log_type", params.log_type);
     q.set("page", String(params?.page ?? 1));
     q.set("page_size", String(params?.page_size ?? 20));
     return request<VerificationLogsResponse>(`/api/v1/verification-logs?${q}`);

@@ -194,16 +194,17 @@ async def reset_user_face(
     "/verification-logs",
     response_model=dict,
     tags=["Verification Logs"],
-    summary="Get verification audit log",
-    description="Fetch paginated verification attempts, optionally filtered by user_id.",
+    summary="Get verification/enrollment audit log",
+    description="Fetch paginated verification or enrollment logs, optionally filtered by user_id and log_type.",
 )
 async def get_verification_logs(
     user_id: Optional[str] = Query(None, description="Filter by user ID"),
+    log_type: Optional[str] = Query(None, description="Filter by log type (verification or enrollment)"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     mysql: MySQLService = Depends(get_mysql_service),
 ):
-    logs, total = mysql.get_verification_logs(user_id=user_id, page=page, page_size=page_size)
+    logs, total = mysql.get_verification_logs(user_id=user_id, log_type=log_type, page=page, page_size=page_size)
     return {
         "logs": logs,
         "total": total,

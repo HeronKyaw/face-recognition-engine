@@ -210,6 +210,8 @@ async def enroll_face(
         if fb:
             frames_bytes.append(fb)
 
+    method_str = method.value if isinstance(method, LivenessMethod) else method
+
     if method == LivenessMethod.challenge:
         if not challenge_id:
             raise HTTPException(status_code=400, detail="challenge_id is required when method=challenge")
@@ -218,6 +220,11 @@ async def enroll_face(
         liveness_result = await _perform_liveness_check(image_bytes, frames_bytes, method)
 
     if not liveness_result.passed:
+        mysql.log_verification(
+            user_id=user_id, distance=None, device_id=None,
+            success=False, reason=f"Liveness check failed: {liveness_result.message}",
+            log_type="enrollment", method=method_str,
+        )
         logger.warning(f"Liveness check failed during enrollment for user '{user_id}': {liveness_result.message}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -248,6 +255,11 @@ async def enroll_face(
                 f"Anti-fraud: Face for user '{user_id}' matches existing user "
                 f"'{search_result.user_id}' (distance={search_result.distance:.4f})"
             )
+            mysql.log_verification(
+                user_id=user_id, distance=search_result.distance, device_id=None,
+                success=False, reason=f"Anti-fraud: face matches user '{search_result.user_id}'",
+                log_type="enrollment", method=method_str,
+            )
             return EnrollResponse(
                 success=False,
                 user_id=user_id,
@@ -266,6 +278,12 @@ async def enroll_face(
         raise HTTPException(status_code=500, detail="Failed to store face embedding")
 
     mysql.set_face_enrolled(user_id, enrolled=True)
+    mysql.log_verification(
+        user_id=user_id, distance=search_result.distance if search_result else None, device_id=None,
+        success=True,
+        log_type="enrollment",
+        method=method_str,
+    )
 
     logger.info(f"Face enrolled successfully for user: {user_id}")
     return EnrollResponse(
@@ -435,6 +453,8 @@ async def enroll_complete(
             detail="Invalid or expired session token. Re-initiate enrollment via /enroll/init",
         )
 
+    method_str = method.value if isinstance(method, LivenessMethod) else method
+
     try:
         if method == LivenessMethod.challenge:
             if not challenge_id:
@@ -454,6 +474,11 @@ async def enroll_complete(
         raise
 
     if not liveness_result.passed:
+        mysql.log_verification(
+            user_id=session.user_id, distance=None, device_id=None,
+            success=False, reason=f"Liveness check failed: {liveness_result.message}",
+            log_type="enrollment", method=method_str,
+        )
         logger.warning(f"Liveness check failed during enrollment for user '{session.user_id}': {liveness_result.message}")
         SessionService.delete_session(session_token)
         raise HTTPException(
@@ -484,6 +509,11 @@ async def enroll_complete(
                 f"Anti-fraud: Face for user '{session.user_id}' matches existing user "
                 f"'{search_result.user_id}' (distance={search_result.distance:.4f})"
             )
+            mysql.log_verification(
+                user_id=session.user_id, distance=search_result.distance, device_id=None,
+                success=False, reason=f"Anti-fraud: face matches user '{search_result.user_id}'",
+                log_type="enrollment", method=method_str,
+            )
             SessionService.delete_session(session_token)
             return EnrollCompleteResponse(
                 success=False,
@@ -504,6 +534,12 @@ async def enroll_complete(
         raise HTTPException(status_code=500, detail="Failed to store face embedding")
 
     mysql.set_face_enrolled(session.user_id, enrolled=True)
+    mysql.log_verification(
+        user_id=session.user_id, distance=search_result.distance if search_result else None, device_id=None,
+        success=True,
+        log_type="enrollment",
+        method=method_str,
+    )
     SessionService.delete_session(session_token)
 
     logger.info(f"Face enrolled successfully for user: {session.user_id}")
@@ -565,10 +601,13 @@ async def verify_face(
     else:
         liveness_result = await _perform_liveness_check(image_bytes, frames_bytes, method)
 
+    method_str = method.value if isinstance(method, LivenessMethod) else method
+
     if not liveness_result.passed:
         mysql.log_verification(
             user_id=None, distance=None, device_id=device_id,
             success=False, reason=f"Liveness check failed: {liveness_result.message}",
+            log_type="verification", method=method_str,
         )
         logger.warning(f"Liveness check failed during verification: {liveness_result.message}")
         raise HTTPException(
@@ -582,12 +621,14 @@ async def verify_face(
         mysql.log_verification(
             user_id=None, distance=None, device_id=device_id,
             success=False, reason=str(e),
+            log_type="verification", method=method_str,
         )
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         mysql.log_verification(
             user_id=None, distance=None, device_id=device_id,
             success=False, reason=f"Embedding extraction failed: {e}",
+            log_type="verification", method=method_str,
         )
         logger.error(f"Embedding extraction failed: {e}")
         raise HTTPException(status_code=500, detail="Face processing failed")
@@ -598,6 +639,7 @@ async def verify_face(
         mysql.log_verification(
             user_id=None, distance=None, device_id=device_id,
             success=False, reason="Face search service unavailable",
+            log_type="verification", method=method_str,
         )
         logger.error(f"ChromaDB search failed during verification: {e}")
         raise HTTPException(status_code=503, detail="Face search service unavailable")
@@ -606,6 +648,7 @@ async def verify_face(
         mysql.log_verification(
             user_id=None, distance=None, device_id=device_id,
             success=False, reason="No matching face found",
+            log_type="verification", method=method_str,
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -616,6 +659,7 @@ async def verify_face(
         mysql.log_verification(
             user_id=None, distance=search_result.distance, device_id=device_id,
             success=False, reason=f"Face not recognized (distance: {search_result.distance:.4f})",
+            log_type="verification", method=method_str,
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -627,6 +671,7 @@ async def verify_face(
         mysql.log_verification(
             user_id=search_result.user_id, distance=search_result.distance, device_id=device_id,
             success=False, reason="Identity data inconsistency",
+            log_type="verification", method=method_str,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -638,6 +683,8 @@ async def verify_face(
         distance=search_result.distance,
         device_id=device_id,
         success=True,
+        log_type="verification",
+        method=method_str,
     )
 
     logger.info(f"Identity verified: user={user.user_id}, distance={search_result.distance:.4f}")

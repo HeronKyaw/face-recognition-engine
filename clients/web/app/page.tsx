@@ -74,13 +74,13 @@ export default function Dashboard() {
           <div className="text-xs font-medium text-slate-400 uppercase tracking-wider">Quick Actions</div>
           <div className="mt-3 flex flex-wrap gap-2">
             <a href="/enroll" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-sm font-medium hover:bg-indigo-100 transition-colors">
-              ○ Enroll Face
+              ○ Face Enrollment
             </a>
             <a href="/verify" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-sm font-medium hover:bg-indigo-100 transition-colors">
-              ◐ Verify Face
+              ◐ Face Verification
             </a>
             <a href="/logs" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-sm font-medium hover:bg-indigo-100 transition-colors">
-              ⊞ View Logs
+              ⊞ Activity Logs
             </a>
           </div>
         </div>

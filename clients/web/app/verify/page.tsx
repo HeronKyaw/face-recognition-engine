@@ -626,7 +626,7 @@ export default function VerifyPage() {
   return (
     <div className="max-w-lg mx-auto space-y-5">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Verify Face</h1>
+        <h1 className="text-xl font-semibold text-slate-900">Face Verification</h1>
         <p className="text-sm text-slate-500 mt-0.5">Identify a person from a face image</p>
       </div>
 

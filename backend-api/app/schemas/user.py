@@ -67,6 +67,8 @@ class VerificationLogResponse(BaseModel):
     distance: Optional[float] = None
     success: bool = True
     reason: Optional[str] = None
+    log_type: str = "verification"
+    method: Optional[str] = None
     created_at: datetime
     
     model_config = ConfigDict(
@@ -79,6 +81,8 @@ class VerificationLogResponse(BaseModel):
                 "distance": 0.23,
                 "success": True,
                 "reason": None,
+                "log_type": "verification",
+                "method": "frame_burst",
                 "created_at": "2024-01-15T10:30:00Z"
             }
         }

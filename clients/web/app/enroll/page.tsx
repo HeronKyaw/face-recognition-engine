@@ -738,7 +738,7 @@ export default function EnrollPage() {
     return (
       <div className="max-w-lg mx-auto space-y-5">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">Enroll Face</h1>
+          <h1 className="text-xl font-semibold text-slate-900">Face Enrollment</h1>
           <p className="text-sm text-slate-500 mt-0.5">Register a face image for an existing user</p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center">
@@ -755,7 +755,7 @@ export default function EnrollPage() {
   return (
     <div className="max-w-lg mx-auto space-y-5">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Enroll Face</h1>
+        <h1 className="text-xl font-semibold text-slate-900">Face Enrollment</h1>
         <p className="text-sm text-slate-500 mt-0.5">Register a face image for an existing user</p>
       </div>
 
@@ -957,7 +957,7 @@ export default function EnrollPage() {
                         disabled={!userId}
                         className="mt-3 w-full bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 shadow-sm transition-colors"
                       >
-                        Enroll Face
+                        Start Enrollment
                       </button>
                     )}
                   </div>
