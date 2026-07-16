@@ -106,7 +106,8 @@ export default function LogsPage() {
                   <th className="text-left px-5 py-3 text-xs font-medium text-slate-400 uppercase tracking-wider">ID</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-slate-400 uppercase tracking-wider">User ID</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-slate-400 uppercase tracking-wider">Device</th>
-                  <th className="text-left px-5 py-3 text-xs font-medium text-slate-400 uppercase tracking-wider">Distance</th>
+                  <th className="text-left px-5 py-3 text-xs font-medium text-slate-400 uppercase tracking-wider">Status</th>
+                  <th className="text-left px-5 py-3 text-xs font-medium text-slate-400 uppercase tracking-wider">Reason</th>
                   <th className="text-left px-5 py-3 text-xs font-medium text-slate-400 uppercase tracking-wider">Timestamp</th>
                 </tr>
               </thead>
@@ -123,15 +124,18 @@ export default function LogsPage() {
                     </td>
                     <td className="px-5 py-3.5 text-slate-600 text-xs">{l.device_id || <span className="text-slate-400">—</span>}</td>
                     <td className="px-5 py-3.5">
-                      {l.distance !== null && l.distance !== undefined ? (
-                        <span className={`font-mono text-xs ${
-                          l.distance < 0.4 ? "text-emerald-600" : l.distance < 0.6 ? "text-amber-600" : "text-red-600"
-                        }`}>
-                          {l.distance.toFixed(4)}
+                      {l.success ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
+                          Verified
                         </span>
                       ) : (
-                        <span className="text-slate-400">—</span>
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700 bg-red-50 px-2 py-0.5 rounded-full">
+                          Failed
+                        </span>
                       )}
+                    </td>
+                    <td className="px-5 py-3.5 text-xs text-slate-600 max-w-xs truncate" title={l.reason || ""}>
+                      {l.reason || <span className="text-slate-400">—</span>}
                     </td>
                     <td className="px-5 py-3.5 text-slate-500 text-xs">{new Date(l.created_at).toLocaleString()}</td>
                   </tr>

@@ -18,7 +18,7 @@ services:
       CHROMA_HOST: host.docker.internal
       CHROMA_PORT: 8000
       CHROMA_COLLECTION_NAME: face_embeddings
-      VERIFICATION_THRESHOLD: 0.3
+      VERIFICATION_THRESHOLD: 0.45
       MODEL_PATH: models/sface.onnx
     ports:
       - "5050:8000"

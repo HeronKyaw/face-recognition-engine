@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS verification_log (
     user_id VARCHAR(50) NULL,
     device_id VARCHAR(100) NULL,
     distance DECIMAL(10, 6) NULL,
+    success BOOLEAN NOT NULL DEFAULT TRUE,
+    reason VARCHAR(255) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_verification_user (user_id),
     INDEX idx_verification_time (created_at)

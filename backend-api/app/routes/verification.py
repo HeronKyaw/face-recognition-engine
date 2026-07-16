@@ -566,6 +566,10 @@ async def verify_face(
         liveness_result = await _perform_liveness_check(image_bytes, frames_bytes, method)
 
     if not liveness_result.passed:
+        mysql.log_verification(
+            user_id=None, distance=None, device_id=device_id,
+            success=False, reason=f"Liveness check failed: {liveness_result.message}",
+        )
         logger.warning(f"Liveness check failed during verification: {liveness_result.message}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -575,24 +579,44 @@ async def verify_face(
     try:
         embedding = opencv.extract_embedding_from_bytes(image_bytes)
     except ValueError as e:
+        mysql.log_verification(
+            user_id=None, distance=None, device_id=device_id,
+            success=False, reason=str(e),
+        )
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
+        mysql.log_verification(
+            user_id=None, distance=None, device_id=device_id,
+            success=False, reason=f"Embedding extraction failed: {e}",
+        )
         logger.error(f"Embedding extraction failed: {e}")
         raise HTTPException(status_code=500, detail="Face processing failed")
 
     try:
         search_result = chroma.search_embedding(embedding.tolist())
     except Exception as e:
+        mysql.log_verification(
+            user_id=None, distance=None, device_id=device_id,
+            success=False, reason="Face search service unavailable",
+        )
         logger.error(f"ChromaDB search failed during verification: {e}")
         raise HTTPException(status_code=503, detail="Face search service unavailable")
 
     if not search_result:
+        mysql.log_verification(
+            user_id=None, distance=None, device_id=device_id,
+            success=False, reason="No matching face found",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="No matching face found",
         )
 
     if search_result.distance >= settings.verification_threshold:
+        mysql.log_verification(
+            user_id=None, distance=search_result.distance, device_id=device_id,
+            success=False, reason=f"Face not recognized (distance: {search_result.distance:.4f})",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Face not recognized (distance: {search_result.distance:.4f})",
@@ -600,6 +624,10 @@ async def verify_face(
 
     user = mysql.get_user(search_result.user_id)
     if not user:
+        mysql.log_verification(
+            user_id=search_result.user_id, distance=search_result.distance, device_id=device_id,
+            success=False, reason="Identity data inconsistency",
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Identity data inconsistency",
@@ -609,6 +637,7 @@ async def verify_face(
         user_id=user.user_id,
         distance=search_result.distance,
         device_id=device_id,
+        success=True,
     )
 
     logger.info(f"Identity verified: user={user.user_id}, distance={search_result.distance:.4f}")

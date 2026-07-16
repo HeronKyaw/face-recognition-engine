@@ -153,6 +153,8 @@ export interface VerificationLog {
   user_id?: string;
   device_id?: string;
   distance?: number;
+  success: boolean;
+  reason?: string;
   created_at: string;
 }
 

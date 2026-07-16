@@ -394,7 +394,7 @@ export default function EnrollPage() {
 
   const formatFeedback = (result: { guide?: string; progress?: number; value?: number; threshold?: number }): string => {
     const guide = result.guide;
-    const progress = result.progress ?? 0;
+    const progress = Math.min(1, Math.max(0, result.progress ?? 0));
     if (!guide) return "";
     const bar = "█".repeat(Math.round(progress * 10)) + "░".repeat(10 - Math.round(progress * 10));
     return `${guide} ${bar} ${(progress * 100).toFixed(0)}%`;
@@ -428,6 +428,7 @@ export default function EnrollPage() {
         processing = true;
         try {
           if (action === "blink") {
+            setStepGuide("");
             const ear = await svc.computeEarFromVideo(video);
             if (ear !== null) {
               if (ear < 0.2) {
@@ -461,6 +462,10 @@ export default function EnrollPage() {
               holdCount = 0;
             }
           }
+        } catch {
+          clearTimeout(timeout);
+          resolve(false);
+          return;
         } finally {
           processing = false;
         }

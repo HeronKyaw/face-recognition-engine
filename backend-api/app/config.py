@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     # Distance threshold for face verification (cosine distance)
     # SFace default: 0.363 cosine similarity → 0.637 distance
-    verification_threshold: float = float(os.getenv("VERIFICATION_THRESHOLD", "0.3"))
+    verification_threshold: float = float(os.getenv("VERIFICATION_THRESHOLD", "0.45"))
 
     # Distance threshold for enrollment duplicate detection (anti-fraud)
     # Blocks re-enrollment of the same face under a different user ID.

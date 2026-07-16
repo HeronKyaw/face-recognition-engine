@@ -65,6 +65,8 @@ class VerificationLogResponse(BaseModel):
     user_id: Optional[str] = None
     device_id: Optional[str] = None
     distance: Optional[float] = None
+    success: bool = True
+    reason: Optional[str] = None
     created_at: datetime
     
     model_config = ConfigDict(
@@ -75,6 +77,8 @@ class VerificationLogResponse(BaseModel):
                 "user_id": "user_12345",
                 "device_id": "camera-gate-a-01",
                 "distance": 0.23,
+                "success": True,
+                "reason": None,
                 "created_at": "2024-01-15T10:30:00Z"
             }
         }

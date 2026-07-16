@@ -314,15 +314,17 @@ class MySQLService:
         user_id: Optional[str],
         distance: Optional[float] = None,
         device_id: Optional[str] = None,
+        success: bool = True,
+        reason: Optional[str] = None,
     ) -> None:
-        """Record a successful verification in the audit log."""
+        """Record a verification attempt in the audit log."""
         query = """
-            INSERT INTO verification_log (user_id, device_id, distance)
-            VALUES (%s, %s, %s)
+            INSERT INTO verification_log (user_id, device_id, distance, success, reason)
+            VALUES (%s, %s, %s, %s, %s)
         """
         with cls.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(query, (user_id, device_id, distance))
+            cursor.execute(query, (user_id, device_id, distance, success, reason))
 
     @classmethod
     def get_verification_logs(
@@ -346,7 +348,7 @@ class MySQLService:
 
         count_query = f"SELECT COUNT(*) as total FROM verification_log {where_clause}"
         data_query = f"""
-            SELECT id, user_id, device_id, distance, created_at
+            SELECT id, user_id, device_id, distance, success, reason, created_at
             FROM verification_log {where_clause}
             ORDER BY created_at DESC LIMIT %s OFFSET %s
         """
@@ -367,6 +369,8 @@ class MySQLService:
                     user_id=row["user_id"],
                     device_id=row["device_id"],
                     distance=row["distance"],
+                    success=bool(row["success"]),
+                    reason=row.get("reason"),
                     created_at=row["created_at"],
                 )
                 for row in rows
