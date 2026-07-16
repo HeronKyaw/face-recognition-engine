@@ -18,6 +18,7 @@ Anti-Fraud: During enrollment, we search ChromaDB first. If a face matches an ex
 we reject enrollment - prevents one person registering multiple identities.
 """
 import logging
+import uuid
 from typing import Optional, List
 from dataclasses import dataclass
 
@@ -47,8 +48,8 @@ class ChromaService:
     
     Architecture Decisions:
     - Single collection for all face embeddings (efficient HNSW index)
-    - Document ID = user_id (enables upsert for re-enrollment)
-    - Metadata stores user_id for potential filtering
+    - Supports multiple embeddings per user (e.g., with/without glasses)
+    - Document ID = unique UUID per embedding; user_id stored in metadata
     - Cosine distance: lower = more similar. Threshold configurable via env var
     - Default threshold (0.5) tuned for SFace (OpenCV Zoo) cosine distance
     """
@@ -144,29 +145,29 @@ class ChromaService:
     @classmethod
     def add_embedding(cls, user_id: str, embedding: List[float]) -> bool:
         """
-        Add a face embedding to the vector index.
+        Add a face embedding to the vector index (supports multiple per user).
         
-        Why upsert (not add)?
-        - Idempotent: Safe to call multiple times for same user_id
-        - Handles re-enrollment: Updates embedding if user re-enrolls
-        - ChromaDB upsert replaces existing vector with same ID
+        Uses a unique UUID per embedding so multiple variants (e.g., with/without
+        glasses) can be stored for the same user_id. The user_id is stored in
+        metadata for filtering and identification.
         
         Args:
-            user_id: Unique identifier (used as ChromaDB document ID)
+            user_id: User identifier (stored in metadata for search)
             embedding: 128-dim normalized face embedding from SFace
             
         Returns:
-            True if added/updated successfully
+            True if added successfully
         """
         cls._ensure_initialized()
         
         try:
-            cls._collection.upsert(
-                ids=[user_id],
+            embedding_id = f"{user_id}_{uuid.uuid4().hex[:12]}"
+            cls._collection.add(
+                ids=[embedding_id],
                 embeddings=[embedding],
                 metadatas=[{"user_id": user_id}],
             )
-            logger.info(f"Added/updated embedding for user: {user_id}")
+            logger.info(f"Added embedding {embedding_id} for user: {user_id}")
             return True
         except Exception as e:
             logger.error(f"Failed to add embedding for user {user_id}: {e}")
@@ -211,10 +212,11 @@ class ChromaService:
             best_id = results["ids"][0][0]
             best_distance = results["distances"][0][0]
             best_embedding = results["embeddings"][0][0]
+            best_user_id = results["metadatas"][0][0].get("user_id", best_id)
             query_np = np.array(embedding)
             best_np = np.array(best_embedding)
             
-            logger.info(f"ChromaDB search: count={collection_count}, best={best_id}, "
+            logger.info(f"ChromaDB search: count={collection_count}, best={best_user_id}, "
                        f"distance={best_distance:.6f}, "
                        f"query_first5={query_np[:5].tolist()}, "
                        f"stored_first5={best_np[:5].tolist()}")
@@ -224,13 +226,44 @@ class ChromaService:
                               f"embeddings nearly identical, SFace model may be broken")
             
             return SearchResult(
-                user_id=best_id,
+                user_id=best_user_id,
                 distance=max(0.0, best_distance),
                 embedding=best_embedding,
             )
         except Exception as e:
             logger.error(f"ChromaDB search failed: {e}")
             raise
+
+    @classmethod
+    def search_embeddings(cls, embedding: List[float], n_results: int = 5) -> list[SearchResult]:
+        cls._ensure_initialized()
+        try:
+            results = cls._collection.query(
+                query_embeddings=[embedding],
+                n_results=max(n_results, 2),
+                include=["embeddings", "distances", "metadatas"],
+            )
+        except ChromaNotFoundError:
+            logger.warning("Collection not found, reinitializing and retrying search...")
+            cls._reinitialize()
+            results = cls._collection.query(
+                query_embeddings=[embedding],
+                n_results=max(n_results, 2),
+                include=["embeddings", "distances", "metadatas"],
+            )
+
+        if not results["ids"] or not results["ids"][0]:
+            return []
+
+        search_results = []
+        for i in range(len(results["ids"][0])):
+            uid = results["metadatas"][0][i].get("user_id", results["ids"][0][i])
+            search_results.append(SearchResult(
+                user_id=uid,
+                distance=max(0.0, results["distances"][0][i]),
+                embedding=results["embeddings"][0][i],
+            ))
+        return search_results
     
     @classmethod
     def delete_embedding(cls, user_id: str) -> bool:
@@ -257,13 +290,13 @@ class ChromaService:
     @classmethod
     def _delete_embedding(cls, user_id: str) -> bool:
         try:
-            existing = cls._collection.get(ids=[user_id], include=[])
+            existing = cls._collection.get(where={"user_id": user_id}, include=[])
             if not existing["ids"]:
                 logger.warning(f"Embedding not found in ChromaDB for user: {user_id}")
                 return False
-            
-            cls._collection.delete(ids=[user_id])
-            logger.info(f"Deleted embedding for user: {user_id}")
+
+            cls._collection.delete(ids=existing["ids"])
+            logger.info(f"Deleted {len(existing['ids'])} embedding(s) for user: {user_id}")
             return True
         except Exception as e:
             logger.error(f"Failed to delete embedding for user {user_id}: {e}")
@@ -284,7 +317,7 @@ class ChromaService:
     @classmethod
     def _get_embedding(cls, user_id: str) -> Optional[List[float]]:
         try:
-            results = cls._collection.get(ids=[user_id], include=["embeddings"])
+            results = cls._collection.get(where={"user_id": user_id}, include=["embeddings"])
             if results["embeddings"]:
                 return results["embeddings"][0]
             return None
@@ -292,6 +325,15 @@ class ChromaService:
             logger.error(f"Failed to get embedding for user {user_id}: {e}")
             raise
     
+    @classmethod
+    def has_user_embedding(cls, user_id: str) -> bool:
+        cls._ensure_initialized()
+        try:
+            results = cls._collection.get(where={"user_id": user_id}, include=[])
+            return len(results.get("ids", [])) > 0
+        except Exception:
+            return False
+
     @classmethod
     def count(cls) -> int:
         """Get total number of embeddings in the collection."""

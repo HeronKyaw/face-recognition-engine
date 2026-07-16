@@ -14,6 +14,7 @@ from app.schemas.verification import (
     EnrollResponse,
     LivenessMethod,
     LivenessResult,
+    OcclusionInfo,
     QualityCheckResult,
     StepVerifyResponse,
     VerifyResponse,
@@ -232,12 +233,35 @@ async def enroll_face(
         )
 
     try:
-        embedding = opencv.extract_embedding_from_bytes(image_bytes)
+        embeddings = [opencv.extract_embedding_from_bytes(image_bytes)]
+        if frames_bytes:
+            frame_embs = opencv.extract_embeddings_from_bytes_batch(frames_bytes)
+            embeddings.extend(frame_embs)
+            logger.info(f"Multi-frame enrollment: {len(embeddings)} embeddings from main image + {len(frame_embs)} frames")
+        embedding = opencv.average_embeddings(embeddings)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         logger.error(f"Embedding extraction failed: {e}")
         raise HTTPException(status_code=500, detail="Face processing failed")
+
+    occlusion = opencv.detect_occlusion_from_bytes(image_bytes)
+
+    if occlusion.get("glasses_detected") and not chroma.has_user_embedding(user_id):
+        mysql.log_verification(
+            user_id=user_id, distance=None, device_id=None,
+            success=False, reason="Glasses detected on first enrollment",
+            log_type="enrollment", method=method_str,
+        )
+        logger.warning(f"First enrollment rejected for user '{user_id}': glasses detected, bare face required")
+        return EnrollResponse(
+            success=False,
+            user_id=user_id,
+            message="Glasses detected. Please remove glasses and enroll with a bare face first for optimal recognition accuracy. You can add glasses variants after initial enrollment.",
+            embedding_stored=False,
+            liveness=liveness_result,
+            occlusion=OcclusionInfo(**occlusion),
+        )
 
     try:
         search_result = chroma.search_embedding(embedding.tolist())
@@ -269,6 +293,7 @@ async def enroll_face(
                 ),
                 embedding_stored=False,
                 liveness=liveness_result,
+                occlusion=OcclusionInfo(**occlusion),
             )
 
     try:
@@ -292,6 +317,7 @@ async def enroll_face(
         message="Face enrolled successfully",
         embedding_stored=True,
         liveness=liveness_result,
+        occlusion=OcclusionInfo(**occlusion),
     )
 
 
@@ -455,6 +481,12 @@ async def enroll_complete(
 
     method_str = method.value if isinstance(method, LivenessMethod) else method
 
+    frames_bytes = []
+    for f in liveness_frames:
+        fb = await f.read()
+        if fb:
+            frames_bytes.append(fb)
+
     try:
         if method == LivenessMethod.challenge:
             if not challenge_id:
@@ -463,11 +495,6 @@ async def enroll_complete(
                 session.face_image_bytes, challenge_id, liveness_frames
             )
         else:
-            frames_bytes = []
-            for f in liveness_frames:
-                fb = await f.read()
-                if fb:
-                    frames_bytes.append(fb)
             liveness_result = await _perform_liveness_check(session.face_image_bytes, frames_bytes, method)
     except HTTPException:
         SessionService.delete_session(session_token)
@@ -487,7 +514,12 @@ async def enroll_complete(
         )
 
     try:
-        embedding = opencv.extract_embedding_from_bytes(session.face_image_bytes)
+        embeddings = [opencv.extract_embedding_from_bytes(session.face_image_bytes)]
+        if frames_bytes:
+            frame_embs = opencv.extract_embeddings_from_bytes_batch(frames_bytes)
+            embeddings.extend(frame_embs)
+            logger.info(f"Multi-frame enrollment: {len(embeddings)} embeddings from session image + {len(frame_embs)} frames")
+        embedding = opencv.average_embeddings(embeddings)
     except ValueError as e:
         SessionService.delete_session(session_token)
         raise HTTPException(status_code=400, detail=str(e))
@@ -495,6 +527,25 @@ async def enroll_complete(
         logger.error(f"Embedding extraction failed: {e}")
         SessionService.delete_session(session_token)
         raise HTTPException(status_code=500, detail="Face processing failed")
+
+    occlusion = opencv.detect_occlusion_from_bytes(session.face_image_bytes)
+
+    if occlusion.get("glasses_detected") and not chroma.has_user_embedding(session.user_id):
+        mysql.log_verification(
+            user_id=session.user_id, distance=None, device_id=None,
+            success=False, reason="Glasses detected on first enrollment",
+            log_type="enrollment", method=method_str,
+        )
+        logger.warning(f"First enrollment rejected for user '{session.user_id}': glasses detected, bare face required")
+        SessionService.delete_session(session_token)
+        return EnrollCompleteResponse(
+            success=False,
+            user_id=session.user_id,
+            message="Glasses detected. Please remove glasses and enroll with a bare face first for optimal recognition accuracy. You can add glasses variants after initial enrollment.",
+            embedding_stored=False,
+            liveness=liveness_result,
+            occlusion=OcclusionInfo(**occlusion),
+        )
 
     try:
         search_result = chroma.search_embedding(embedding.tolist())
@@ -524,6 +575,7 @@ async def enroll_complete(
                 ),
                 embedding_stored=False,
                 liveness=liveness_result,
+                occlusion=OcclusionInfo(**occlusion),
             )
 
     try:
@@ -549,6 +601,7 @@ async def enroll_complete(
         message="Face enrolled successfully",
         embedding_stored=True,
         liveness=liveness_result,
+        occlusion=OcclusionInfo(**occlusion),
     )
 
 
@@ -633,6 +686,8 @@ async def verify_face(
         logger.error(f"Embedding extraction failed: {e}")
         raise HTTPException(status_code=500, detail="Face processing failed")
 
+    occlusion = opencv.detect_occlusion_from_bytes(image_bytes)
+
     try:
         search_result = chroma.search_embedding(embedding.tolist())
     except Exception as e:
@@ -687,6 +742,22 @@ async def verify_face(
         method=method_str,
     )
 
+    warning = None
+    if occlusion.get("glasses_detected") and search_result.distance > settings.verification_threshold * 0.7:
+        try:
+            all_results = chroma.search_embeddings(embedding.tolist(), n_results=5)
+            if len(all_results) >= 2:
+                d1 = all_results[0].distance
+                d2 = all_results[1].distance
+                if abs(d2 - d1) < 0.05:
+                    warning = (
+                        f"Glasses detected — match is close to ambiguous "
+                        f"(top distances: {d1:.4f}, {d2:.4f})"
+                    )
+                    logger.warning(warning)
+        except Exception as e:
+            logger.warning(f"Ambiguity check failed: {e}")
+
     logger.info(f"Identity verified: user={user.user_id}, distance={search_result.distance:.4f}")
     return VerifyResponse(
         success=True,
@@ -696,4 +767,6 @@ async def verify_face(
         distance=search_result.distance,
         message="Identity verified successfully",
         liveness=liveness_result,
+        occlusion=OcclusionInfo(**occlusion),
+        warning=warning,
     )

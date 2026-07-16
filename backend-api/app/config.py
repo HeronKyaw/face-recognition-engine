@@ -1,6 +1,7 @@
 import os
 from functools import lru_cache
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 from typing import Optional
 
 
@@ -40,8 +41,9 @@ class Settings(BaseSettings):
 
     # Distance threshold for enrollment duplicate detection (anti-fraud)
     # Blocks re-enrollment of the same face under a different user ID.
-    # Tuned to catch same-person variance (~0.26) while allowing lookalikes.
-    enrollment_duplicate_threshold: float = float(os.getenv("ENROLLMENT_DUPLICATE_THRESHOLD", "0.4"))
+    # Must be >= verification_threshold to prevent a face from being enrolled
+    # as a new user while also being close enough to verify as an existing user.
+    enrollment_duplicate_threshold: float = float(os.getenv("ENROLLMENT_DUPLICATE_THRESHOLD", "0.45"))
 
     # Liveness Detection Configuration
     # Passive liveness: texture/blur/color analysis on single image (0-1, higher = more likely live)
@@ -56,7 +58,7 @@ class Settings(BaseSettings):
     liveness_frame_diversity_threshold: float = float(os.getenv("LIVENESS_FRAME_DIVERSITY_THRESHOLD", "15.0"))
 
     # Low-Light Enhancement Configuration
-    enable_lowlight_enhancement: bool = os.getenv("ENABLE_LOWLIGHT_ENHANCEMENT", "true").lower() == "true"
+    enable_lowlight_enhancement: bool = os.getenv("ENABLE_LOWLIGHT_ENHANCEMENT", "false").lower() == "true"
     lowlight_luminance_threshold: int = int(os.getenv("LOWLIGHT_LUMINANCE_THRESHOLD", "50"))
     clahe_clip_limit: float = float(os.getenv("CLAHE_CLIP_LIMIT", "2.0"))
     clahe_grid_size: int = int(os.getenv("CLAHE_GRID_SIZE", "8"))
@@ -75,6 +77,10 @@ class Settings(BaseSettings):
     # MediaPipe Configuration
     mediapipe_detection_confidence: float = float(os.getenv("MEDIAPIPE_DETECTION_CONFIDENCE", "0.5"))
 
+    # Occlusion Detection Configuration
+    # Edge density threshold for detecting glasses in the eye region
+    occlusion_edge_density_threshold: float = float(os.getenv("OCCLUSION_EDGE_DENSITY_THRESHOLD", "0.12"))
+
     # Challenge-Response Liveness Configuration
     challenge_timeout_seconds: int = int(os.getenv("CHALLENGE_TIMEOUT_SECONDS", "60"))
     challenge_min_steps: int = int(os.getenv("CHALLENGE_MIN_STEPS", "2"))
@@ -86,6 +92,19 @@ class Settings(BaseSettings):
     challenge_smile_threshold: float = float(os.getenv("CHALLENGE_SMILE_THRESHOLD", "0.3"))
     challenge_min_blinks: int = int(os.getenv("CHALLENGE_MIN_BLINKS", "1"))
     challenge_max_blinks: int = int(os.getenv("CHALLENGE_MAX_BLINKS", "3"))
+
+    @field_validator("enrollment_duplicate_threshold")
+    @classmethod
+    def validate_enrollment_threshold(cls, v, info):
+        verification = info.data.get("verification_threshold", 0.45)
+        if v < verification:
+            raise ValueError(
+                f"enrollment_duplicate_threshold ({v}) must be >= "
+                f"verification_threshold ({verification}) to prevent a face "
+                f"from being enrolled as a new user while also being close "
+                f"enough to verify as an existing user."
+            )
+        return v
 
     class Config:
         env_file = ".env"

@@ -244,7 +244,7 @@ class OpenCVService:
         return {"yaw": float(y), "pitch": float(x), "roll": float(z)}
 
     @classmethod
-    def _enhance_lowlight(cls, image: np.ndarray) -> np.ndarray:
+    def _preprocess(cls, image: np.ndarray) -> np.ndarray:
         if not settings.enable_lowlight_enhancement:
             return image
         lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
@@ -294,6 +294,56 @@ class OpenCVService:
 
         return cv2.warpAffine(image, tform, (output_size, output_size))
 
+    # Eye contour landmark indices for occlusion detection
+    LEFT_EYE_CONTOUR = [33, 246, 161, 160, 159, 158, 157, 173, 133, 155, 154, 153, 145, 144, 163, 7]
+    RIGHT_EYE_CONTOUR = [362, 398, 384, 385, 386, 387, 388, 466, 263, 249, 390, 373, 374, 380, 381, 382]
+
+    @classmethod
+    def detect_occlusion(cls, image: np.ndarray) -> dict:
+        result = {
+            "glasses_detected": False,
+            "edge_density": 0.0,
+            "occlusion_score": 0.0,
+        }
+        landmarks = cls.get_face_landmarks(image)
+        if landmarks is None:
+            return result
+
+        h, w = image.shape[:2]
+        all_idxs = cls.LEFT_EYE_CONTOUR + cls.RIGHT_EYE_CONTOUR
+
+        xs = [landmarks[i].x * w for i in all_idxs]
+        ys = [landmarks[i].y * h for i in all_idxs]
+
+        padding = int((max(xs) - min(xs)) * 0.3)
+        x1 = max(0, int(min(xs)) - padding)
+        y1 = max(0, int(min(ys)) - padding)
+        x2 = min(w, int(max(xs)) + padding)
+        y2 = min(h, int(max(ys)) + padding)
+
+        roi = image[y1:y2, x1:x2]
+        if roi.size == 0:
+            return result
+
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray, 50, 150)
+        edge_density = float(np.sum(edges > 0) / edges.size)
+
+        glasses_detected = edge_density > settings.occlusion_edge_density_threshold
+        return {
+            "glasses_detected": glasses_detected,
+            "edge_density": edge_density,
+            "occlusion_score": edge_density,
+        }
+
+    @classmethod
+    def detect_occlusion_from_bytes(cls, image_bytes: bytes) -> dict:
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if image is None:
+            return {"glasses_detected": False, "edge_density": 0.0, "occlusion_score": 0.0}
+        return cls.detect_occlusion(image)
+
     @classmethod
     def extract_embedding(cls, image: np.ndarray, skip_detection: bool = False) -> np.ndarray:
         cls._ensure_initialized()
@@ -304,7 +354,7 @@ class OpenCVService:
         if len(image.shape) != 3 or image.shape[2] != 3:
             raise ValueError(f"Expected 3-channel BGR image, got shape {image.shape}")
 
-        image = cls._enhance_lowlight(image)
+        image = cls._preprocess(image)
 
         try:
             if not skip_detection:
@@ -324,13 +374,26 @@ class OpenCVService:
             if raw_norm > 0:
                 embedding = embedding / raw_norm
 
-            return embedding.astype(np.float32)
+            result = embedding.astype(np.float32)
 
         except ValueError:
             raise
         except Exception as e:
             logger.error(f"SFace inference error: {e}")
             raise RuntimeError(f"Face embedding extraction failed: {e}")
+
+        if not skip_detection:
+            try:
+                occlusion = cls.detect_occlusion(image)
+                if occlusion["glasses_detected"]:
+                    logger.warning(
+                        f"Glasses detected (edge_density={occlusion['edge_density']:.3f}) — "
+                        f"embedding reliability may be reduced"
+                    )
+            except Exception as e:
+                logger.warning(f"Occlusion detection failed: {e}")
+
+        return result
 
     @classmethod
     def extract_embedding_from_bytes(cls, image_bytes: bytes) -> np.ndarray:
@@ -341,6 +404,33 @@ class OpenCVService:
             raise ValueError("Failed to decode image bytes. Invalid format or corrupted data.")
 
         return cls.extract_embedding(image)
+
+    @classmethod
+    def extract_embeddings_from_bytes_batch(cls, images_bytes: list[bytes]) -> list[np.ndarray]:
+        embeddings = []
+        for img_bytes in images_bytes:
+            try:
+                emb = cls.extract_embedding_from_bytes(img_bytes)
+                embeddings.append(emb)
+            except (ValueError, RuntimeError):
+                continue
+        return embeddings
+
+    @classmethod
+    def average_embeddings(cls, embeddings: list[np.ndarray]) -> np.ndarray:
+        if not embeddings:
+            raise ValueError("No embeddings to average")
+        if len(embeddings) == 1:
+            return embeddings[0]
+        avg = np.mean(embeddings, axis=0)
+        norm = np.linalg.norm(avg)
+        if norm > 0:
+            avg = avg / norm
+        logger.info(
+            f"Averaged {len(embeddings)} embeddings into one "
+            f"(norm={norm:.4f})"
+        )
+        return avg.astype(np.float32)
 
     @classmethod
     def health_check(cls) -> bool:

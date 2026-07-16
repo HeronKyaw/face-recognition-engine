@@ -42,6 +42,12 @@ class StepVerifyResponse(BaseModel):
     message: str = ""
 
 
+class OcclusionInfo(BaseModel):
+    glasses_detected: bool = False
+    edge_density: float = 0.0
+    occlusion_score: float = 0.0
+
+
 class LivenessResult(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     passed: bool
@@ -63,6 +69,7 @@ class EnrollResponse(BaseModel):
     message: str
     embedding_stored: bool = False
     liveness: Optional[LivenessResult] = None
+    occlusion: Optional[OcclusionInfo] = None
     
     class Config:
         json_schema_extra = {
@@ -134,6 +141,7 @@ class EnrollCompleteResponse(BaseModel):
     message: str
     embedding_stored: bool = False
     liveness: Optional[LivenessResult] = None
+    occlusion: Optional[OcclusionInfo] = None
 
 
 class VerifyRequest(BaseModel):
@@ -148,6 +156,8 @@ class VerifyResponse(BaseModel):
     distance: Optional[float] = None
     message: str
     liveness: Optional[LivenessResult] = None
+    occlusion: Optional[OcclusionInfo] = None
+    warning: Optional[str] = None
     
     class Config:
         json_schema_extra = {
