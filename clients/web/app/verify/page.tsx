@@ -62,6 +62,8 @@ export default function VerifyPage() {
   const [challengeSteps, setChallengeSteps] = useState<{ action: string; instruction: string }[]>([]);
   const [currentStep, setCurrentStep] = useState(0);
   const [stepMessage, setStepMessage] = useState("");
+  const [stepProgress, setStepProgress] = useState(0);
+  const [stepGuide, setStepGuide] = useState("");
   const [clientLivenessResult, setClientLivenessResult] = useState<ClientLivenessResult | null>(null);
   const [clientServiceReady, setClientServiceReady] = useState(false);
   const [clientChallengeSteps, setClientChallengeSteps] = useState<ClientChallengeStep[]>([]);
@@ -96,6 +98,8 @@ export default function VerifyPage() {
     setChallengeSteps([]);
     setCurrentStep(0);
     setStepMessage("");
+    setStepProgress(0);
+    setStepGuide("");
     setCountdown(0);
     setCapturingFrames(0);
     setClientLivenessResult(null);
@@ -113,7 +117,7 @@ export default function VerifyPage() {
     }
   }, [cameraActive]);
 
-  const drawFaceMesh = useCallback(() => {
+  const drawFaceMesh = useCallback(async () => {
     const video = videoRef.current;
     const canvas = overlayRef.current;
     const svc = clientServiceRef.current;
@@ -130,7 +134,7 @@ export default function VerifyPage() {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const landmarks = svc.detectFaces(video);
+    const landmarks = await svc.detectFaces(video);
     if (!landmarks || landmarks.length < 468) return;
 
     const w = canvas.width;
@@ -375,12 +379,12 @@ export default function VerifyPage() {
     setTimeout(() => executeClientChallengeStep(0, steps), 500);
   };
 
-  const formatFeedback = (result: { value?: number; threshold?: number }): string => {
-    if (result.value === undefined || result.threshold === undefined) return "";
-    const v = result.value;
-    const t = result.threshold;
-    if (Math.abs(t) <= 1) return `(${(v * 100).toFixed(0)}% / ${(Math.abs(t) * 100).toFixed(0)}%)`;
-    return `(${v.toFixed(1)}° / ${t.toFixed(1)}°)`;
+  const formatFeedback = (result: { guide?: string; progress?: number; value?: number; threshold?: number }): string => {
+    const guide = result.guide;
+    const progress = result.progress ?? 0;
+    if (!guide) return "";
+    const bar = "█".repeat(Math.round(progress * 10)) + "░".repeat(10 - Math.round(progress * 10));
+    return `${guide} ${bar} ${(progress * 100).toFixed(0)}%`;
   };
 
   const detectActionLive = (
@@ -403,7 +407,7 @@ export default function VerifyPage() {
       const HOLD_REQUIRED = action === "blink" ? 1 : 3;
       let processing = false;
 
-      const check = () => {
+      const check = async () => {
         if (processing) {
           detectTimerRef.current = setTimeout(check, 50);
           return;
@@ -411,7 +415,7 @@ export default function VerifyPage() {
         processing = true;
         try {
           if (action === "blink") {
-            const ear = svc.computeEarFromVideo(video);
+            const ear = await svc.computeEarFromVideo(video);
             if (ear !== null) {
               if (ear < 0.2) {
                 if (!inBlink) inBlink = true;
@@ -427,8 +431,10 @@ export default function VerifyPage() {
               }
             }
           } else {
-            const result = svc.verifyActionOnFrame(video, action);
-            setStepMessage(`${instruction} ${formatFeedback(result)}`.trim());
+            const result = await svc.verifyActionOnFrame(video, action);
+            setStepMessage(`${instruction}`);
+            setStepProgress(result.progress ?? 0);
+            setStepGuide(formatFeedback(result));
             if (result.detected) {
               holdCount++;
               if (holdCount >= HOLD_REQUIRED) {
@@ -888,19 +894,37 @@ export default function VerifyPage() {
                     <div className="text-center text-base font-medium text-indigo-700">
                       {clientChallengeSteps[clientChallengeStepIndex]?.instruction || stepMessage}
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-indigo-600 font-medium justify-center">
-                      {clientChallengeSteps[clientChallengeStepIndex]?.action === "blink" ? (
-                        <>
-                          <span className="inline-block w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                          Blinks: {capturingFrames}/{clientChallengeSteps[clientChallengeStepIndex]?.params?.count || 1}
-                        </>
-                      ) : (
-                        <>
-                          <span className="inline-block w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                          Detecting...
-                        </>
-                      )}
+                    <div className="text-center text-sm text-indigo-600 font-medium">
+                      {stepGuide && <span>{stepGuide}</span>}
                     </div>
+                    {clientChallengeSteps[clientChallengeStepIndex]?.action === "blink" ? (
+                      <div className="flex items-center gap-2 text-sm text-indigo-600 font-medium justify-center">
+                        <span className="inline-block w-3 h-3 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                        Blinks: {capturingFrames}/{((clientChallengeSteps[clientChallengeStepIndex]?.params?.count as number) || 1)}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-sm text-indigo-600 font-medium justify-center">
+                        {clientChallengeSteps[clientChallengeStepIndex]?.action === "turn_left" && (
+                          <span className="text-2xl">{stepProgress < 0.3 ? "⬅️" : stepProgress < 0.7 ? "↩️" : "✅"}</span>
+                        )}
+                        {clientChallengeSteps[clientChallengeStepIndex]?.action === "turn_right" && (
+                          <span className="text-2xl">{stepProgress < 0.3 ? "➡️" : stepProgress < 0.7 ? "↪️" : "✅"}</span>
+                        )}
+                        {clientChallengeSteps[clientChallengeStepIndex]?.action === "smile" && (
+                          <span className="text-2xl">{stepProgress < 0.5 ? "😐" : stepProgress < 0.9 ? "🙂" : "😊"}</span>
+                        )}
+                        {clientChallengeSteps[clientChallengeStepIndex]?.action === "mouth_open" && (
+                          <span className="text-2xl">{stepProgress < 0.5 ? "😶" : stepProgress < 0.9 ? "😮" : "😲"}</span>
+                        )}
+                        <div className="w-32 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-indigo-500 rounded-full transition-all duration-150"
+                            style={{ width: `${Math.min(100, stepProgress * 100)}%` }}
+                          />
+                        </div>
+                        <span className="tabular-nums">{(stepProgress * 100).toFixed(0)}%</span>
+                      </div>
+                    )}
                   </div>
                 )}
 

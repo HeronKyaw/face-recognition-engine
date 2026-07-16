@@ -43,12 +43,14 @@ export class ClientLivenessService {
   private faceLandmarker: FaceLandmarker | null = null;
   private modelLoaded = false;
   private detecting = false;
+  private crashed = false;
+  private vision: any = null;
 
   private constructor() {}
 
-  static getInstance(): Promise<ClientLivenessService> {
-    if (ClientLivenessService.instance?.modelLoaded) {
-      return Promise.resolve(ClientLivenessService.instance);
+  static async getInstance(): Promise<ClientLivenessService> {
+    if (ClientLivenessService.instance?.modelLoaded && !ClientLivenessService.instance?.crashed) {
+      return ClientLivenessService.instance;
     }
     if (!ClientLivenessService.loadingPromise) {
       ClientLivenessService.loadingPromise = ClientLivenessService.create();
@@ -59,50 +61,70 @@ export class ClientLivenessService {
   private static async create(): Promise<ClientLivenessService> {
     const service = new ClientLivenessService();
     try {
-      const vision = await FilesetResolver.forVisionTasks(WASM_CDN);
-      service.faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: MODEL_CDN,
-          delegate: "GPU",
-        },
-        runningMode: "IMAGE",
-        numFaces: 1,
-        outputFaceBlendshapes: false,
-        outputFacialTransformationMatrixes: false,
-      });
-      service.modelLoaded = true;
+      service.vision = await FilesetResolver.forVisionTasks(WASM_CDN);
+      await service.initLandmarker();
     } catch (err) {
       console.error("Failed to load FaceLandmarker:", err);
     }
     return service;
   }
 
-  get isLoaded(): boolean {
-    return this.modelLoaded && this.faceLandmarker !== null;
+  private async initLandmarker(): Promise<void> {
+    if (!this.vision) return;
+    try {
+      this.faceLandmarker = await FaceLandmarker.createFromOptions(this.vision, {
+        baseOptions: {
+          modelAssetPath: MODEL_CDN,
+          delegate: "CPU",
+        },
+        runningMode: "IMAGE",
+        numFaces: 1,
+        outputFaceBlendshapes: false,
+        outputFacialTransformationMatrixes: false,
+      });
+      this.modelLoaded = true;
+      this.crashed = false;
+    } catch (err) {
+      console.error("Failed to init FaceLandmarker:", err);
+    }
   }
 
-  detectFaces(input: HTMLVideoElement | HTMLCanvasElement): LandmarkPoint[] | null {
-    if (!this.faceLandmarker || !this.modelLoaded || this.detecting) return null;
-    let iw: number, ih: number;
-    if (input instanceof HTMLVideoElement) {
-      iw = input.videoWidth;
-      ih = input.videoHeight;
-    } else {
-      iw = input.width;
-      ih = input.height;
+  private async recover(): Promise<void> {
+    this.faceLandmarker = null;
+    this.modelLoaded = false;
+    this.detecting = false;
+    await this.initLandmarker();
+  }
+
+  get isLoaded(): boolean {
+    return this.modelLoaded && this.faceLandmarker !== null && !this.crashed;
+  }
+
+  private async toBitmap(input: HTMLVideoElement | HTMLCanvasElement): Promise<ImageBitmap | null> {
+    try {
+      return await createImageBitmap(input);
+    } catch {
+      return null;
     }
-    if (!iw || !ih) return null;
+  }
+
+  async detectFaces(input: HTMLVideoElement | HTMLCanvasElement): Promise<LandmarkPoint[] | null> {
+    if (!this.faceLandmarker || !this.modelLoaded || this.detecting || this.crashed) return null;
+    const bitmap = await this.toBitmap(input);
+    if (!bitmap) return null;
     this.detecting = true;
     try {
-      const result = this.faceLandmarker.detect(input);
+      const result = this.faceLandmarker.detect(bitmap);
       if (result.faceLandmarks && result.faceLandmarks.length > 0) {
         const raw = result.faceLandmarks[0] as unknown as LandmarkPoint[];
         return raw;
       }
     } catch {
-      /* silent */
+      this.crashed = true;
+      this.recover();
     } finally {
       this.detecting = false;
+      bitmap.close();
     }
     return null;
   }
@@ -303,33 +325,44 @@ export class ClientLivenessService {
     });
   }
 
-  verifyActionOnFrame(video: HTMLVideoElement, action: string): { detected: boolean; value?: number; threshold?: number } {
-    const landmarks = this.detectFaces(video);
+  async verifyActionOnFrame(
+    video: HTMLVideoElement,
+    action: string
+  ): Promise<{ detected: boolean; value?: number; threshold?: number; progress?: number; guide?: string }> {
+    const landmarks = await this.detectFaces(video);
     if (!landmarks) return { detected: false };
     switch (action) {
       case "smile": {
         const v = this.smileRatio(landmarks, video.videoWidth, video.videoHeight);
-        return { detected: v > CHALLENGE_SMILE_THRESHOLD, value: v, threshold: CHALLENGE_SMILE_THRESHOLD };
+        const p = Math.min(1, v / CHALLENGE_SMILE_THRESHOLD);
+        const guide = p < 0.5 ? "Smile more" : p < 0.9 ? "Almost there, keep smiling" : "Hold your smile";
+        return { detected: v > CHALLENGE_SMILE_THRESHOLD, value: v, threshold: CHALLENGE_SMILE_THRESHOLD, progress: p, guide };
       }
       case "turn_left": {
         const pose = this.estimateHeadPose(landmarks);
-        return { detected: pose.yaw < -CHALLENGE_HEAD_TURN_YAW_THRESHOLD, value: pose.yaw, threshold: -CHALLENGE_HEAD_TURN_YAW_THRESHOLD };
+        const p = Math.min(1, -pose.yaw / CHALLENGE_HEAD_TURN_YAW_THRESHOLD);
+        const guide = p < 0.5 ? "Turn your head to the left" : p < 0.9 ? "Almost there, keep turning left" : "Hold your head still";
+        return { detected: pose.yaw < -CHALLENGE_HEAD_TURN_YAW_THRESHOLD, value: pose.yaw, threshold: -CHALLENGE_HEAD_TURN_YAW_THRESHOLD, progress: p, guide };
       }
       case "turn_right": {
         const pose = this.estimateHeadPose(landmarks);
-        return { detected: pose.yaw > CHALLENGE_HEAD_TURN_YAW_THRESHOLD, value: pose.yaw, threshold: CHALLENGE_HEAD_TURN_YAW_THRESHOLD };
+        const p = Math.min(1, pose.yaw / CHALLENGE_HEAD_TURN_YAW_THRESHOLD);
+        const guide = p < 0.5 ? "Turn your head to the right" : p < 0.9 ? "Almost there, keep turning right" : "Hold your head still";
+        return { detected: pose.yaw > CHALLENGE_HEAD_TURN_YAW_THRESHOLD, value: pose.yaw, threshold: CHALLENGE_HEAD_TURN_YAW_THRESHOLD, progress: p, guide };
       }
       case "mouth_open": {
         const v = this.mouthAspectRatio(landmarks, video.videoWidth, video.videoHeight);
-        return { detected: v > CHALLENGE_MOUTH_OPEN_MAR_THRESHOLD, value: v, threshold: CHALLENGE_MOUTH_OPEN_MAR_THRESHOLD };
+        const p = Math.min(1, v / CHALLENGE_MOUTH_OPEN_MAR_THRESHOLD);
+        const guide = p < 0.5 ? "Open your mouth wider" : p < 0.9 ? "Almost there, a bit more" : "Hold your mouth open";
+        return { detected: v > CHALLENGE_MOUTH_OPEN_MAR_THRESHOLD, value: v, threshold: CHALLENGE_MOUTH_OPEN_MAR_THRESHOLD, progress: p, guide };
       }
       default:
         return { detected: false };
     }
   }
 
-  computeEarFromVideo(video: HTMLVideoElement): number | null {
-    const landmarks = this.detectFaces(video);
+  async computeEarFromVideo(video: HTMLVideoElement): Promise<number | null> {
+    const landmarks = await this.detectFaces(video);
     if (!landmarks) return null;
     return this.computeEarForFrame(landmarks, video.videoWidth, video.videoHeight);
   }
@@ -346,7 +379,7 @@ export class ClientLivenessService {
       const expected = (params.count as number) || 1;
       const earValues: (number | null)[] = [];
       for (const canvas of canvases) {
-        const landmarks = this.detectFaces(canvas);
+        const landmarks = await this.detectFaces(canvas);
         if (landmarks) {
           earValues.push(this.computeEarForFrame(landmarks, canvas.width, canvas.height));
         } else {
@@ -358,7 +391,7 @@ export class ClientLivenessService {
     }
 
     for (const canvas of canvases) {
-      const landmarks = this.detectFaces(canvas);
+      const landmarks = await this.detectFaces(canvas);
       if (!landmarks) continue;
 
       switch (action) {
@@ -437,7 +470,7 @@ export class ClientLivenessService {
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       rawFrames.push(new Uint8ClampedArray(imageData.data));
 
-      const landmarks = this.detectFaces(canvas);
+      const landmarks = await this.detectFaces(canvas);
       if (landmarks) {
         faceDetected.push(true);
         earValues.push(this.computeEarForFrame(landmarks, canvas.width, canvas.height));
