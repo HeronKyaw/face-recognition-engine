@@ -754,11 +754,11 @@ export default function EnrollPage() {
     return (
       <div className="max-w-lg mx-auto space-y-5">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">Face Enrollment</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Register a face image for an existing user</p>
+          <h1 className="text-2xl font-bold text-slate-900">Face Enrollment</h1>
+          <p className="text-sm text-slate-500 mt-1">Register a face image for an existing user</p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center">
-          <div className="text-3xl text-slate-300 mb-3">○</div>
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-12 text-center">
+          <div className="text-4xl text-slate-300 mb-3">○</div>
           <p className="text-slate-500 text-sm">No users found.</p>
           <Link href="/users/create" className="mt-3 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-sm font-medium hover:bg-indigo-100 transition-colors">
             Create a user first
@@ -771,8 +771,8 @@ export default function EnrollPage() {
   return (
     <div className="max-w-lg mx-auto space-y-5">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Face Enrollment</h1>
-        <p className="text-sm text-slate-500 mt-0.5">Register a face image for an existing user</p>
+        <h1 className="text-2xl font-bold text-slate-900">Face Enrollment</h1>
+        <p className="text-sm text-slate-500 mt-1">Register a face image for an existing user</p>
       </div>
 
       {error && (
@@ -871,7 +871,7 @@ export default function EnrollPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-5">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-5">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">User</label>
           <select
@@ -915,6 +915,21 @@ export default function EnrollPage() {
 
         {!cameraActive && !result && !error && (
           <div>
+            {/* Pre-enrollment guidance */}
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4 text-sm">
+              <div className="flex items-start gap-2.5">
+                <span className="text-amber-500 text-base mt-0.5">!</span>
+                <div className="text-amber-800">
+                  <p className="font-medium text-xs uppercase tracking-wider mb-1">Before You Enroll</p>
+                  <ul className="space-y-0.5 text-xs text-amber-700">
+                    <li>• Remove glasses, masks, or any accessories covering your face</li>
+                    <li>• Ensure your face is well-lit and directly facing the camera</li>
+                    <li>• Keep a neutral expression during capture</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
             <div className="flex rounded-lg border border-slate-200 overflow-hidden mb-4">
               <button
                 onClick={() => setMethod("frame_burst")}

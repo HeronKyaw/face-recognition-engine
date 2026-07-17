@@ -9,8 +9,6 @@ export const metadata: Metadata = {
 const navLinks = [
   { href: "/", label: "Dashboard", icon: "◉" },
   { href: "/users", label: "Users", icon: "◎" },
-  { href: "/enroll", label: "Enrollment", icon: "○" },
-  { href: "/verify", label: "Verification", icon: "◐" },
   { href: "/logs", label: "Activity Log", icon: "⊞" },
 ];
 
